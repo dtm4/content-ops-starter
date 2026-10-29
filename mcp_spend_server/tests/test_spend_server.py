@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import approvals
 import card_issuer
+import card_view
 import employees
 import mcp_spend_server
 import slack_listener
@@ -57,6 +58,9 @@ class FakeIssuer:
         self.revealed.append(card_token)
         return CardDetails(card_number="4111111111114242", cvv="123", exp_month="11", exp_year="2029")
 
+    def get_embed_url(self, card_token):
+        return f"https://sandbox.lithic.com/v1/embed/card?embed_request={card_token}&hmac=x"
+
 
 @pytest.fixture
 def directory(tmp_path, monkeypatch):
@@ -89,6 +93,8 @@ def env(tmp_path, monkeypatch, directory):
     monkeypatch.setenv("SLACK_SIGNING_SECRET", SECRET)
     monkeypatch.setenv("SLACK_APPROVER_IDS", APPROVER)
     monkeypatch.delenv("LITHIC_ENVIRONMENT", raising=False)
+    monkeypatch.setenv("CARD_VIEW_LINK_SECRET", "view-secret")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://spend.example.com/")
     return ledger, issuer, slack_messages
 
 
@@ -521,6 +527,95 @@ def test_non_slack_response_url_rejected(env, client):
     new_request(ledger, "t11", 2000)
     assert click(client, "approve_spend", "t11", response_url="https://attacker.example/x").status_code == 400
     assert issuer.calls == []
+
+
+# --- Signed "View card details" links ---
+
+def link_params(link):
+    from urllib.parse import parse_qs, urlparse
+    parsed = urlparse(link)
+    assert parsed.scheme == "https" and parsed.netloc == "spend.example.com" and parsed.path == "/cards/view"
+    return {k: v[0] for k, v in parse_qs(parsed.query).items()}
+
+
+def test_view_link_signing(env):
+    params = link_params(card_view.make_view_link("t1", now=1000))
+    assert params["task_id"] == "t1" and params["expires"] == str(1000 + card_view.LINK_TTL_SECONDS)
+    assert card_view.verify_view_link("t1", params["expires"], params["sig"], now=1000)
+    assert not card_view.verify_view_link("t2", params["expires"], params["sig"], now=1000)
+    assert not card_view.verify_view_link("t1", str(int(params["expires"]) + 60), params["sig"], now=1000)
+    assert not card_view.verify_view_link("t1", params["expires"], params["sig"],
+                                          now=1001 + card_view.LINK_TTL_SECONDS)
+    assert not card_view.verify_view_link("t1", "soon", params["sig"], now=1000)
+
+
+def test_view_links_off_without_config(env, monkeypatch):
+    params = link_params(card_view.make_view_link("t1"))
+    monkeypatch.delenv("PUBLIC_BASE_URL")
+    assert card_view.make_view_link("t1") is None
+    assert not card_view.verify_view_link("t1", params["expires"], params["sig"])
+    assert "View card details" not in approvals.view_link_line("t1")
+
+
+def test_auto_issued_card_is_announced_with_link(env):
+    _, _, slack_messages = env
+    result = provision("v1", 500)
+    assert "View card details" in slack_messages[-1] and "ending 4242" in slack_messages[-1]
+    # The agent never gets the link.
+    assert "cards/view" not in json.dumps(result)
+
+
+def test_slack_approval_reply_includes_link(env, client):
+    ledger, _, slack_messages = env
+    new_request(ledger, "v2", 2000)
+    click(client, "approve_spend", "v2")
+    assert "View card details" in slack_messages[-1] and "task_id=v2" in slack_messages[-1]
+
+
+def test_view_page_frames_lithic_card_ui(env, client):
+    ledger, _, _ = env
+    provision("v3", 500)
+    link = card_view.make_view_link("v3")
+    response = client.get(link.replace("https://spend.example.com", ""))
+    assert response.status_code == 200
+    assert "https://sandbox.lithic.com/v1/embed/card?embed_request=tok-v3" in response.text
+    assert "4111111111114242" not in response.text
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert ledger.get("v3")["human_view_count"] == 1
+
+
+def test_view_page_rejects_bad_or_expired_links(env, client):
+    provision("v4", 500)
+    params = link_params(card_view.make_view_link("v4"))
+    assert client.get("/cards/view", params={**params, "sig": "0" * 64}).status_code == 403
+    assert client.get("/cards/view", params={**params, "task_id": "v5"}).status_code == 403
+    expired = link_params(card_view.make_view_link("v4", now=time.time() - card_view.LINK_TTL_SECONDS - 1))
+    assert client.get("/cards/view", params=expired).status_code == 403
+    assert client.get("/cards/view").status_code == 403
+
+
+def test_view_page_limited_views_and_open_cards_only(env, client):
+    ledger, _, _ = env
+    provision("v6", 500)
+    params = link_params(card_view.make_view_link("v6"))
+    for _ in range(card_view.MAX_HUMAN_VIEWS):
+        assert client.get("/cards/view", params=params).status_code == 200
+    assert client.get("/cards/view", params=params).status_code == 410
+    provision("v7", 500)
+    call_tool("terminate_agent_card", task_id="v7")
+    assert client.get("/cards/view", params=link_params(card_view.make_view_link("v7"))).status_code == 410
+    provision("v8", 3000)  # still pending
+    assert client.get("/cards/view", params=link_params(card_view.make_view_link("v8"))).status_code == 410
+
+
+def test_real_sdk_embed_url_points_at_sandbox(monkeypatch):
+    # get_embed_url is signed locally by the SDK, so this runs without network access.
+    monkeypatch.delenv("LITHIC_ENVIRONMENT", raising=False)
+    monkeypatch.setenv("LITHIC_API_KEY", "test-key")
+    url = card_issuer.LithicCardIssuer().get_embed_url("card-token-1")
+    assert url.startswith("https://sandbox.lithic.com/v1/embed/card?embed_request=") and "hmac=" in url
 
 
 def test_listener_refuses_to_start_without_approvers(env, monkeypatch):

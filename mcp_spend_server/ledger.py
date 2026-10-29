@@ -50,19 +50,22 @@ CREATE TABLE IF NOT EXISTS agent_card_requests (
     employee_id TEXT NOT NULL DEFAULT '',
     agent_instance_id TEXT NOT NULL DEFAULT '',
     details_reveal_count INTEGER NOT NULL DEFAULT 0,
-    last_revealed_at TIMESTAMP
+    last_revealed_at TIMESTAMP,
+    human_view_count INTEGER NOT NULL DEFAULT 0
 )
 """
 
 _COLUMNS = ("task_id", "max_budget_cents", "agent_ecosystem", "status", "card_token",
             "last_four", "decided_by", "error", "created_at", "updated_at",
-            "employee_id", "agent_instance_id", "details_reveal_count", "last_revealed_at")
+            "employee_id", "agent_instance_id", "details_reveal_count", "last_revealed_at",
+            "human_view_count")
 
 _ADDED_COLUMNS = {
     "employee_id": "TEXT NOT NULL DEFAULT ''",
     "agent_instance_id": "TEXT NOT NULL DEFAULT ''",
     "details_reveal_count": "INTEGER NOT NULL DEFAULT 0",
     "last_revealed_at": "TIMESTAMP",
+    "human_view_count": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -167,20 +170,27 @@ class Ledger:
         """Move APPROVED -> CLOSED after the card has been closed at Lithic."""
         return self._transition(task_id, APPROVED, CLOSED)
 
+    def _record_reveal(self, task_id: str, counter: str, limit: int) -> Optional[Dict[str, Any]]:
+        with closing(self._connect()) as conn, conn:
+            row = conn.execute(
+                f"UPDATE agent_card_requests SET {counter} = {counter} + 1, "
+                "last_revealed_at = CURRENT_TIMESTAMP "
+                f"WHERE task_id = ? AND status = ? AND {counter} < ? RETURNING {', '.join(_COLUMNS)}",
+                (task_id, APPROVED, limit),
+            ).fetchone()
+        return self._row(row)
+
     def record_details_reveal(self, task_id: str, max_reveals: int) -> Optional[Dict[str, Any]]:
         """Count a hand-out of the card's details to the agent, for the audit log.
 
         Only allowed while the card is APPROVED and under max_reveals; returns None
         otherwise. The details themselves are never stored.
         """
-        with closing(self._connect()) as conn, conn:
-            row = conn.execute(
-                "UPDATE agent_card_requests SET details_reveal_count = details_reveal_count + 1, "
-                "last_revealed_at = CURRENT_TIMESTAMP "
-                f"WHERE task_id = ? AND status = ? AND details_reveal_count < ? RETURNING {', '.join(_COLUMNS)}",
-                (task_id, APPROVED, max_reveals),
-            ).fetchone()
-        return self._row(row)
+        return self._record_reveal(task_id, "details_reveal_count", max_reveals)
+
+    def record_human_view(self, task_id: str, max_views: int) -> Optional[Dict[str, Any]]:
+        """Count a person opening the card in Lithic's embedded card UI. Same rules as above."""
+        return self._record_reveal(task_id, "human_view_count", max_views)
 
     def deny(self, task_id: str, decided_by: str) -> Optional[Dict[str, Any]]:
         """Move PENDING -> DENIED. Returns the row, or None if it was not PENDING."""

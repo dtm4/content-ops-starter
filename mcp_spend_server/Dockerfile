@@ -6,7 +6,7 @@ FROM python:3.11-slim AS runner
 RUN useradd --system --no-create-home app && mkdir /data && chown app /data
 COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
-COPY approvals.py card_issuer.py employees.py ledger.py mcp_spend_server.py slack_listener.py ./
+COPY approvals.py card_issuer.py card_view.py employees.py ledger.py mcp_spend_server.py slack_listener.py ./
 ENV PATH=/opt/venv/bin:$PATH
 ENV PYTHONUNBUFFERED=1
 ENV AGENT_SPEND_DB=/data/agent_spend.db

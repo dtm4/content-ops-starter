@@ -14,6 +14,7 @@ from approvals import (
     MAX_HUMAN_CEILING_CENTS,
     TASK_ID_PATTERN,
     alert_cap_reached,
+    announce_auto_issued_card,
     get_ledger,
     issue_card_for_task,
     public_view,
@@ -132,6 +133,8 @@ async def _provision(task_id: str, arguments: Dict[str, Any], employee_id: str) 
 
     if max_spend_cents <= MAX_AUTO_SPEND_CENTS:
         row = await issue_card_for_task(ledger, get_issuer(), task_id, decided_by="auto-policy")
+        if row["status"] == APPROVED:
+            await announce_auto_issued_card(row)
         view = public_view(row)
     else:
         row = ledger.get(task_id)

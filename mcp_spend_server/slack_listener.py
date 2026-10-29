@@ -3,10 +3,14 @@
 Every request must carry a valid Slack signature, and only Slack user IDs listed
 in SLACK_APPROVER_IDS can decide. Slack is answered immediately; the Lithic call
 runs afterwards and the result is posted back to the message's response_url.
+
+Also serves /cards/view, the page behind the signed "View card details" links,
+which frames Lithic's embedded card UI so a person can pay by hand.
 """
 
 import hashlib
 import hmac
+import html
 import json
 import os
 import sys
@@ -17,9 +21,11 @@ from urllib.parse import parse_qs
 
 import httpx
 from fastapi import BackgroundTasks, FastAPI, Request, Response
+from fastapi.responses import HTMLResponse
 
-from approvals import get_ledger, issue_card_for_task
+from approvals import get_ledger, issue_card_for_task, view_link_line
 from card_issuer import get_issuer
+from card_view import MAX_HUMAN_VIEWS, verify_view_link
 from employees import load_employees
 from ledger import APPROVED
 
@@ -75,7 +81,8 @@ async def approve_and_report(task_id: str, user_id: str, response_url: str) -> N
         text = f"Task `{task_id}` was already decided or does not exist. No card was issued."
     elif row["status"] == APPROVED:
         text = (f"Approved by <@{user_id}>. Single-use card ending {row['last_four']} issued to "
-                f"`{row['employee_id']}` for task `{task_id}` with a ${row['max_budget_cents'] / 100:.2f} limit.")
+                f"`{row['employee_id']}` for task `{task_id}` with a ${row['max_budget_cents'] / 100:.2f} limit."
+                f"{view_link_line(task_id)}")
     else:
         text = (f"Approved by <@{user_id}>, but issuing the card for task `{task_id}` failed: "
                 f"{row['error']}")
@@ -125,3 +132,48 @@ async def handle_slack_interaction(request: Request, background: BackgroundTasks
     else:
         return Response(status_code=400)
     return Response(status_code=200)
+
+
+_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": (
+        "default-src 'none'; style-src 'unsafe-inline'; "
+        "frame-src https://sandbox.lithic.com https://api.lithic.com; frame-ancestors 'none'"
+    ),
+}
+
+
+def _view_page(title: str, body: str, status_code: int = 200) -> HTMLResponse:
+    page = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        f"<title>{html.escape(title)}</title>"
+        "<style>body{font-family:system-ui,sans-serif;max-width:480px;margin:24px auto;padding:0 16px;color:#222}"
+        "iframe{border:0;width:100%;height:260px}p{line-height:1.5}</style></head>"
+        f"<body><h1 style='font-size:1.3em'>{html.escape(title)}</h1>{body}</body></html>"
+    )
+    return HTMLResponse(page, status_code=status_code, headers=_NO_STORE_HEADERS)
+
+
+@app.get("/cards/view")
+async def view_card(task_id: str = "", expires: str = "", sig: str = ""):
+    if not verify_view_link(task_id, expires, sig):
+        return _view_page("Link not valid", "<p>This link is invalid or has expired. "
+                          "Ask for a new card if you still need to pay.</p>", status_code=403)
+    row = get_ledger().record_human_view(task_id, MAX_HUMAN_VIEWS)
+    if row is None:
+        return _view_page("Card not available", "<p>This card is no longer open, or it has already been "
+                          f"viewed {MAX_HUMAN_VIEWS} times.</p>", status_code=410)
+    embed_url = get_issuer().get_embed_url(row["card_token"])
+    details = (
+        f"<p>Task <code>{html.escape(task_id)}</code> &middot; employee <code>{html.escape(row['employee_id'])}</code>"
+        f"<br>Single-use card ending <b>{html.escape(row['last_four'])}</b>, "
+        f"limit <b>${row['max_budget_cents'] / 100:.2f}</b>.</p>"
+        f"<iframe src='{html.escape(embed_url, quote=True)}' allow='clipboard-write'></iframe>"
+        "<p>The card details load straight from Lithic. If they don't appear, reload this page "
+        f"(up to {MAX_HUMAN_VIEWS} views). Use the billing address registered on the card's "
+        "Lithic account. The card works for one purchase only.</p>"
+    )
+    return _view_page("Card for checkout", details)

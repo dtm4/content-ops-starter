@@ -3,9 +3,23 @@
 Two processes share one SQLite ledger:
 
 - **`mcp_spend_server.py`**: stdio MCP server, run once per employee. Tools: `provision_agent_card`, `get_agent_card_status`, `get_card_details_for_checkout` and `terminate_agent_card`.
-- **`slack_listener.py`**: receives Approve/Deny clicks from Slack.
+- **`slack_listener.py`**: receives Approve/Deny clicks from Slack, and serves the "View card details" page.
 
 Requests up to $10 get a single-use Lithic card immediately. Requests up to $50 post an Approve/Deny message to Slack, and anything above $50 is rejected. Each card's spend limit is the requested amount, and the card is created under the employee's own Lithic account.
+
+## Paying by hand
+
+When `CARD_VIEW_LINK_SECRET` and `PUBLIC_BASE_URL` are set, every issued card gets a **View card details** link in the approval channel. This covers both cards issued automatically and cards approved in Slack.
+
+The link opens a page showing Lithic's embedded card UI. The card number, CVV and expiry load in your browser straight from Lithic and never pass through this server, so you can pay by hand. This doesn't need Lithic's PCI approval for agent access.
+
+Each link:
+- works for 30 minutes;
+- works only while the card is open;
+- can be opened at most 5 times;
+- is never shown to the agent.
+
+Anyone in the approval channel can open it during that time, so keep the channel private.
 
 ## How an agent pays
 

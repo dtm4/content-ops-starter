@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from card_view import LINK_TTL_SECONDS, make_view_link
 from employees import get_employee
 from ledger import Ledger
 
@@ -99,6 +100,25 @@ async def request_human_approval(row: Dict[str, Any]) -> bool:
                 ],
             },
         ],
+    })
+
+
+def view_link_line(task_id: str) -> str:
+    """A Slack line linking to the card's details for a person, or '' when links are off."""
+    link = make_view_link(task_id)
+    if not link:
+        return ""
+    return f"\n<{link}|View card details> (works for {LINK_TTL_SECONDS // 60} minutes, for checkout by hand)"
+
+
+async def announce_auto_issued_card(row: Dict[str, Any]) -> bool:
+    """Tell the channel about a card issued without approval, so a person can pay with it."""
+    line = view_link_line(row["task_id"])
+    if not line:
+        return False
+    return await post_to_approval_channel({
+        "text": (f"Card ending {row['last_four']} issued automatically to `{row['employee_id']}` for task "
+                 f"`{row['task_id']}` with a ${row['max_budget_cents'] / 100:.2f} limit.{line}"),
     })
 
 

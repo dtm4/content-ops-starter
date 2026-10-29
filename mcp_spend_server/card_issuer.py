@@ -87,6 +87,14 @@ class LithicCardIssuer:
             )
         return CardDetails(card_number=card.pan, cvv=card.cvv, exp_month=card.exp_month, exp_year=card.exp_year)
 
+    def get_embed_url(self, card_token: str) -> str:
+        """A one-minute link to Lithic's hosted card UI, for a person to see the card details.
+
+        Signed locally with the API key; the card data loads in the browser straight
+        from Lithic and never passes through this server.
+        """
+        return str(self._client.cards.get_embed_url(token=card_token))
+
     async def close_card(self, card_token: str) -> None:
         # CLOSED is permanent at Lithic; the card can never be used again.
         await self._client.cards.update(card_token, state="CLOSED")
