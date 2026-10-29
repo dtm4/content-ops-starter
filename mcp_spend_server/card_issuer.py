@@ -7,6 +7,7 @@ The full card number and CVV that Lithic may return are discarded here.
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from lithic import AsyncLithic
 
@@ -39,15 +40,22 @@ class LithicCardIssuer:
         # The SDK defaults to production, so always pass the environment explicitly.
         self._client = AsyncLithic(api_key=api_key, environment=self.environment, max_retries=0)
 
-    async def issue_single_use_card(self, task_id: str, spend_limit_cents: int) -> IssuedCard:
+    async def issue_single_use_card(self, task_id: str, spend_limit_cents: int,
+                                    account_token: Optional[str] = None) -> IssuedCard:
+        options = {"account_token": account_token} if account_token else {}
         card = await self._client.cards.create(
             type="SINGLE_USE",
             memo=f"agent-task:{task_id}",
             spend_limit=spend_limit_cents,
             spend_limit_duration="TRANSACTION",
             state="OPEN",
+            **options,
         )
         return IssuedCard(token=card.token, last_four=card.last_four, state=card.state)
+
+    async def close_card(self, card_token: str) -> None:
+        # CLOSED is permanent at Lithic; the card can never be used again.
+        await self._client.cards.update(card_token, state="CLOSED")
 
 
 _issuer = None

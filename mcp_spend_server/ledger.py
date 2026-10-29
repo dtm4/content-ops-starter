@@ -2,25 +2,37 @@
 
 Each task moves through one state machine:
 
-    PENDING -> ISSUING -> APPROVED
+    PENDING -> ISSUING -> APPROVED -> CLOSED
             |          -> FAILED
             -> DENIED
 
 Every transition is a single conditional UPDATE, so a request can be claimed for
 issuing exactly once no matter how many times an approval arrives. Card numbers
 and CVVs are never stored: only Lithic's card token and the last four digits.
+
+Each request reserves its limit against the employee's rolling 24-hour cap when
+it is created, so a looping agent is cut off by the total, not just per request.
 """
 
 import os
 import sqlite3
 from contextlib import closing
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 PENDING = "PENDING"
 ISSUING = "ISSUING"
 APPROVED = "APPROVED"
+CLOSED = "CLOSED"
 DENIED = "DENIED"
 FAILED = "FAILED"
+
+# Requests that hold part of the daily cap. Closed cards still count: the cap is
+# on what was authorised, not on what was actually spent.
+RESERVING_STATUSES = (PENDING, ISSUING, APPROVED, CLOSED)
+
+CREATED = "created"
+EXISTS = "exists"
+OVER_CAP = "over_cap"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS agent_card_requests (
@@ -33,12 +45,20 @@ CREATE TABLE IF NOT EXISTS agent_card_requests (
     decided_by TEXT,
     error TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    employee_id TEXT NOT NULL DEFAULT '',
+    agent_instance_id TEXT NOT NULL DEFAULT ''
 )
 """
 
 _COLUMNS = ("task_id", "max_budget_cents", "agent_ecosystem", "status", "card_token",
-            "last_four", "decided_by", "error", "created_at", "updated_at")
+            "last_four", "decided_by", "error", "created_at", "updated_at",
+            "employee_id", "agent_instance_id")
+
+_ADDED_COLUMNS = {
+    "employee_id": "TEXT NOT NULL DEFAULT ''",
+    "agent_instance_id": "TEXT NOT NULL DEFAULT ''",
+}
 
 
 class Ledger:
@@ -51,6 +71,12 @@ class Ledger:
             # WAL lets the MCP server and the Slack listener share the file.
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute(_SCHEMA)
+            existing = {row[1] for row in conn.execute("PRAGMA table_info(agent_card_requests)")}
+            for name, definition in _ADDED_COLUMNS.items():
+                if name not in existing:
+                    conn.execute(f"ALTER TABLE agent_card_requests ADD COLUMN {name} {definition}")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_employee_created "
+                         "ON agent_card_requests (employee_id, created_at)")
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=10)
@@ -58,18 +84,51 @@ class Ledger:
     def _row(self, row: Optional[tuple]) -> Optional[Dict[str, Any]]:
         return dict(zip(_COLUMNS, row)) if row else None
 
-    def create(self, task_id: str, max_budget_cents: int, agent_ecosystem: str) -> bool:
-        """Record a new PENDING request. Returns False if the task_id already exists."""
-        try:
-            with closing(self._connect()) as conn, conn:
-                conn.execute(
-                    "INSERT INTO agent_card_requests (task_id, max_budget_cents, agent_ecosystem, status) "
-                    "VALUES (?, ?, ?, ?)",
-                    (task_id, max_budget_cents, agent_ecosystem, PENDING),
-                )
-            return True
-        except sqlite3.IntegrityError:
-            return False
+    def _reserved_last_24h(self, conn: sqlite3.Connection, employee_id: str) -> int:
+        placeholders = ", ".join("?" for _ in RESERVING_STATUSES)
+        (total,) = conn.execute(
+            "SELECT COALESCE(SUM(max_budget_cents), 0) FROM agent_card_requests "
+            f"WHERE employee_id = ? AND created_at >= datetime('now', '-1 day') AND status IN ({placeholders})",
+            (employee_id, *RESERVING_STATUSES),
+        ).fetchone()
+        return total
+
+    def reserved_last_24h(self, employee_id: str) -> int:
+        with closing(self._connect()) as conn:
+            return self._reserved_last_24h(conn, employee_id)
+
+    def create(self, task_id: str, max_budget_cents: int, employee_id: str, agent_instance_id: str,
+               agent_ecosystem: str, daily_cap_cents: int) -> Tuple[str, int]:
+        """Record a new PENDING request if it fits the employee's 24-hour cap.
+
+        Returns (CREATED | EXISTS | OVER_CAP, cents of the cap still unreserved).
+        The check and the insert run in one write transaction, so concurrent
+        requests can't both squeeze under the cap.
+        """
+        with closing(self._connect()) as conn:
+            conn.isolation_level = None
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if conn.execute("SELECT 1 FROM agent_card_requests WHERE task_id = ?", (task_id,)).fetchone():
+                    outcome = EXISTS
+                    reserved = self._reserved_last_24h(conn, employee_id)
+                else:
+                    reserved = self._reserved_last_24h(conn, employee_id)
+                    if reserved + max_budget_cents > daily_cap_cents:
+                        outcome = OVER_CAP
+                    else:
+                        conn.execute(
+                            "INSERT INTO agent_card_requests (task_id, max_budget_cents, employee_id, "
+                            "agent_instance_id, agent_ecosystem, status) VALUES (?, ?, ?, ?, ?, ?)",
+                            (task_id, max_budget_cents, employee_id, agent_instance_id, agent_ecosystem, PENDING),
+                        )
+                        reserved += max_budget_cents
+                        outcome = CREATED
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
+        return outcome, max(daily_cap_cents - reserved, 0)
 
     def get(self, task_id: str) -> Optional[Dict[str, Any]]:
         with closing(self._connect()) as conn:
@@ -98,6 +157,10 @@ class Ledger:
 
     def mark_failed(self, task_id: str, error: str) -> Optional[Dict[str, Any]]:
         return self._transition(task_id, ISSUING, FAILED, error=error[:500])
+
+    def mark_closed(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Move APPROVED -> CLOSED after the card has been closed at Lithic."""
+        return self._transition(task_id, APPROVED, CLOSED)
 
     def deny(self, task_id: str, decided_by: str) -> Optional[Dict[str, Any]]:
         """Move PENDING -> DENIED. Returns the row, or None if it was not PENDING."""

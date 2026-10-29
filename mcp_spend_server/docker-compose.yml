@@ -1,9 +1,13 @@
-# Values come from a .env file next to this one (see .env.example).
+# Values come from a .env file next to this one (see .env.example), and the
+# employee directory from config/employees.json (see employees.example.json).
 x-common: &common
   image: mcp-spend-server:latest
   restart: always
   volumes:
     - mcp_ledger_data:/data
+    # Mount the folder, not the file: editors replace files on save, and a
+    # single-file mount would keep serving the old copy.
+    - ./config:/config:ro
   logging:
     driver: "json-file"
     options:
@@ -29,6 +33,7 @@ services:
       - LITHIC_ENVIRONMENT=${LITHIC_ENVIRONMENT:-sandbox}
       - ALLOW_PRODUCTION_CARDS=${ALLOW_PRODUCTION_CARDS:-no}
       - SPEND_APPROVAL_WEBHOOK=${SPEND_APPROVAL_WEBHOOK:-}
+      - SPEND_EMPLOYEE_ID=${SPEND_EMPLOYEE_ID:?set SPEND_EMPLOYEE_ID in .env}
 
   slack-listener:
     <<: *common

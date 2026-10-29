@@ -7,6 +7,6 @@ ZIP_NAME="mcp_spend_server_production.zip"
 
 echo "🚀 Packaging $SRC_DIR..."
 rm -f "$ZIP_NAME"
-(cd "$SRC_DIR" && zip -r "../$ZIP_NAME" . -x "tests/*" "*__pycache__*" "*.db" ".env" ".pytest_cache/*" > /dev/null)
+(cd "$SRC_DIR" && zip -r "../$ZIP_NAME" . -x "tests/*" "*__pycache__*" "*.db" ".env" "config/*" ".pytest_cache/*" > /dev/null)
 
 echo "✨ Production ZIP created successfully: $ZIP_NAME"

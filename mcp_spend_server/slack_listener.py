@@ -20,6 +20,7 @@ from fastapi import BackgroundTasks, FastAPI, Request, Response
 
 from approvals import get_ledger, issue_card_for_task
 from card_issuer import get_issuer
+from employees import load_employees
 from ledger import APPROVED
 
 SIGNATURE_TOLERANCE_SECONDS = 300
@@ -51,6 +52,7 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("SLACK_SIGNING_SECRET is not set")
     if not approver_ids():
         raise RuntimeError("SLACK_APPROVER_IDS is empty, so nobody could approve a request")
+    load_employees()
     get_issuer()
     get_ledger()
     yield
@@ -72,10 +74,11 @@ async def approve_and_report(task_id: str, user_id: str, response_url: str) -> N
     if row is None:
         text = f"Task `{task_id}` was already decided or does not exist. No card was issued."
     elif row["status"] == APPROVED:
-        text = (f"Approved by <@{user_id}>. Single-use card ending {row['last_four']} issued for task "
-                f"`{task_id}` with a ${row['max_budget_cents'] / 100:.2f} limit.")
+        text = (f"Approved by <@{user_id}>. Single-use card ending {row['last_four']} issued to "
+                f"`{row['employee_id']}` for task `{task_id}` with a ${row['max_budget_cents'] / 100:.2f} limit.")
     else:
-        text = f"Approved by <@{user_id}>, but issuing the card for task `{task_id}` failed. Check the server logs."
+        text = (f"Approved by <@{user_id}>, but issuing the card for task `{task_id}` failed: "
+                f"{row['error']}")
     await post_to_slack(response_url, text)
 
 

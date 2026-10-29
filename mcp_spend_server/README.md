@@ -2,30 +2,42 @@
 
 Two processes share one SQLite ledger:
 
-- **`mcp_spend_server.py`**: stdio MCP server. Tools: `provision_agent_card` and `get_agent_card_status`.
+- **`mcp_spend_server.py`**: stdio MCP server, run once per employee. Tools: `provision_agent_card`, `get_agent_card_status` and `terminate_agent_card`.
 - **`slack_listener.py`**: receives Approve/Deny clicks from Slack.
 
-Requests up to $10 get a single-use Lithic card immediately. Requests up to $50 post an Approve/Deny message to Slack, and anything above $50 is rejected. Each card's spend limit is the requested amount.
+Requests up to $10 get a single-use Lithic card immediately. Requests up to $50 post an Approve/Deny message to Slack, and anything above $50 is rejected. Each card's spend limit is the requested amount, and the card is created under the employee's own Lithic account.
 
 Agents only ever see the card token and last four digits. Full card numbers and CVVs are never returned or stored.
 
 ## Safety defaults
 
 - Cards come from **Lithic's sandbox** unless `LITHIC_ENVIRONMENT=production` *and* `ALLOW_PRODUCTION_CARDS=yes` are both set.
-- The listener rejects any request without a valid Slack signature.
-- Only Slack user IDs in `SLACK_APPROVER_IDS` can approve or deny.
-- A request is claimed for issuing at most once, so repeated or late clicks never create a second card.
-- A failed Lithic call leaves the request `FAILED`. Submit a new `task_id` to try again.
+- **Daily cap:** every request reserves its limit against the employee's rolling 24-hour cap (`daily_cap_cents`, default $50). Pending, issued and closed cards all count; denied and failed requests don't. Once the cap is reached, further requests are refused and Slack gets an alert, at most once every 10 minutes. This is what stops an agent stuck in a loop.
+- **Employee identity:** the employee comes from the server's `SPEND_EMPLOYEE_ID`, never from the agent's tool call. Agents can only see and close their own employee's cards.
+- **Deactivation:** setting an employee's `status` to anything but `ACTIVE` in `config/employees.json` blocks new requests and pending approvals immediately, with no restart.
+- **Slack security:** the listener rejects any request without a valid Slack signature. Only Slack user IDs in `SLACK_APPROVER_IDS` can approve or deny.
+- **No duplicate cards:** a request is claimed for issuing at most once, so repeated or late clicks never create a second card.
+- **Retries:** a failed Lithic call leaves the request `FAILED`. Submit a new `task_id` to try again.
+- **Closing cards:** `terminate_agent_card` closes the card at Lithic permanently. Single-use cards also close themselves after their first purchase.
+
+The cap is on what was *authorised*, not on what was actually charged: a $9 card used for $2 still uses $9 of the cap.
 
 ## Setup
 
 1. `cp .env.example .env` and fill it in with your Lithic **sandbox** API key.
-2. Create a Slack app:
+2. `mkdir config && cp employees.example.json config/employees.json` and list your employees. `lithic_account_token` is the employee's Lithic account; leave it empty to use your program's default account (fine for sandbox testing).
+3. Create a Slack app:
    - Enable **Incoming Webhooks** for the approval channel → `SPEND_APPROVAL_WEBHOOK`.
    - Copy **Basic Information → Signing Secret** → `SLACK_SIGNING_SECRET`.
    - Enable **Interactivity** with the Request URL `https://<your-host>/slack/interactivity`.
-3. Run `docker compose up -d --build`. The listener binds to `127.0.0.1:8080`, so put an HTTPS reverse proxy or tunnel in front of it for Slack.
-4. Point your MCP client at the server, e.g. `docker run -i --rm -v <project>_mcp_ledger_data:/data --env-file .env mcp-spend-server:latest`.
+4. Run `docker compose up -d --build`. The listener binds to `127.0.0.1:8080`, so put an HTTPS reverse proxy or tunnel in front of it for Slack.
+5. Point each MCP client at a server for its employee:
+
+   ```
+   docker run -i --rm --env-file .env -e SPEND_EMPLOYEE_ID=EMP_DEV_B \
+     -v <project>_mcp_ledger_data:/data -v "$PWD/config:/config:ro" \
+     mcp-spend-server:latest
+   ```
 
 ## Tests
 
