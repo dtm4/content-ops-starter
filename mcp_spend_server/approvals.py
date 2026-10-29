@@ -27,7 +27,7 @@ def get_ledger() -> Ledger:
 
 
 def public_view(row: Dict[str, Any]) -> Dict[str, Any]:
-    """The fields safe to show an agent or a Slack channel. Never card numbers or CVVs."""
+    """The ledger fields safe to show an agent or a Slack channel. Never card numbers or CVVs."""
     return {
         "task_id": row["task_id"],
         "status": row["status"],
@@ -36,6 +36,7 @@ def public_view(row: Dict[str, Any]) -> Dict[str, Any]:
         "agent_instance_id": row["agent_instance_id"],
         "card_token": row["card_token"],
         "last_four": row["last_four"],
+        "details_reveal_count": row["details_reveal_count"],
     }
 
 

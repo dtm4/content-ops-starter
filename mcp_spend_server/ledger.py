@@ -8,7 +8,8 @@ Each task moves through one state machine:
 
 Every transition is a single conditional UPDATE, so a request can be claimed for
 issuing exactly once no matter how many times an approval arrives. Card numbers
-and CVVs are never stored: only Lithic's card token and the last four digits.
+and CVVs are never stored: only Lithic's card token, the last four digits and a
+count of how many times the full details were handed to the agent.
 
 Each request reserves its limit against the employee's rolling 24-hour cap when
 it is created, so a looping agent is cut off by the total, not just per request.
@@ -47,17 +48,21 @@ CREATE TABLE IF NOT EXISTS agent_card_requests (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     employee_id TEXT NOT NULL DEFAULT '',
-    agent_instance_id TEXT NOT NULL DEFAULT ''
+    agent_instance_id TEXT NOT NULL DEFAULT '',
+    details_reveal_count INTEGER NOT NULL DEFAULT 0,
+    last_revealed_at TIMESTAMP
 )
 """
 
 _COLUMNS = ("task_id", "max_budget_cents", "agent_ecosystem", "status", "card_token",
             "last_four", "decided_by", "error", "created_at", "updated_at",
-            "employee_id", "agent_instance_id")
+            "employee_id", "agent_instance_id", "details_reveal_count", "last_revealed_at")
 
 _ADDED_COLUMNS = {
     "employee_id": "TEXT NOT NULL DEFAULT ''",
     "agent_instance_id": "TEXT NOT NULL DEFAULT ''",
+    "details_reveal_count": "INTEGER NOT NULL DEFAULT 0",
+    "last_revealed_at": "TIMESTAMP",
 }
 
 
@@ -161,6 +166,21 @@ class Ledger:
     def mark_closed(self, task_id: str) -> Optional[Dict[str, Any]]:
         """Move APPROVED -> CLOSED after the card has been closed at Lithic."""
         return self._transition(task_id, APPROVED, CLOSED)
+
+    def record_details_reveal(self, task_id: str, max_reveals: int) -> Optional[Dict[str, Any]]:
+        """Count a hand-out of the card's details to the agent, for the audit log.
+
+        Only allowed while the card is APPROVED and under max_reveals; returns None
+        otherwise. The details themselves are never stored.
+        """
+        with closing(self._connect()) as conn, conn:
+            row = conn.execute(
+                "UPDATE agent_card_requests SET details_reveal_count = details_reveal_count + 1, "
+                "last_revealed_at = CURRENT_TIMESTAMP "
+                f"WHERE task_id = ? AND status = ? AND details_reveal_count < ? RETURNING {', '.join(_COLUMNS)}",
+                (task_id, APPROVED, max_reveals),
+            ).fetchone()
+        return self._row(row)
 
     def deny(self, task_id: str, decided_by: str) -> Optional[Dict[str, Any]]:
         """Move PENDING -> DENIED. Returns the row, or None if it was not PENDING."""

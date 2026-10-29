@@ -2,7 +2,8 @@
 
 Defaults to Lithic's sandbox. Production needs both LITHIC_ENVIRONMENT=production
 and ALLOW_PRODUCTION_CARDS=yes, so a stray env var can't start issuing real cards.
-The full card number and CVV that Lithic may return are discarded here.
+The full card number and CVV are never kept: issuing discards them, and
+get_card_details fetches them from Lithic fresh for each checkout.
 """
 
 import os
@@ -22,6 +23,22 @@ class IssuedCard:
     state: str
 
 
+@dataclass(frozen=True)
+class CardDetails:
+    card_number: str
+    cvv: str
+    exp_month: str
+    exp_year: str
+
+    def __repr__(self) -> str:
+        # Keep the number and CVV out of logs and tracebacks.
+        return f"CardDetails(card_number=****{self.card_number[-4:]}, cvv=***)"
+
+
+class CardDetailsUnavailable(Exception):
+    pass
+
+
 def lithic_environment() -> str:
     environment = os.environ.get("LITHIC_ENVIRONMENT", SANDBOX)
     if environment not in (SANDBOX, PRODUCTION):
@@ -29,6 +46,13 @@ def lithic_environment() -> str:
     if environment == PRODUCTION and os.environ.get("ALLOW_PRODUCTION_CARDS") != "yes":
         raise RuntimeError("Refusing to issue real cards: set ALLOW_PRODUCTION_CARDS=yes to use production")
     return environment
+
+
+def card_details_allowed() -> bool:
+    """Handing real card numbers to agents in production is a separate, explicit choice."""
+    if lithic_environment() == SANDBOX:
+        return True
+    return os.environ.get("ALLOW_PRODUCTION_CARD_DETAILS") == "yes"
 
 
 class LithicCardIssuer:
@@ -52,6 +76,16 @@ class LithicCardIssuer:
             **options,
         )
         return IssuedCard(token=card.token, last_four=card.last_four, state=card.state)
+
+    async def get_card_details(self, card_token: str) -> CardDetails:
+        card = await self._client.cards.retrieve(card_token)
+        if not (card.pan and card.cvv and card.exp_month and card.exp_year):
+            # Lithic only returns full card numbers in production to PCI-compliant programs.
+            raise CardDetailsUnavailable(
+                "Lithic did not return the full card details. In production this needs a "
+                "PCI-compliant Lithic program; contact Lithic support to enable it."
+            )
+        return CardDetails(card_number=card.pan, cvv=card.cvv, exp_month=card.exp_month, exp_year=card.exp_year)
 
     async def close_card(self, card_token: str) -> None:
         # CLOSED is permanent at Lithic; the card can never be used again.

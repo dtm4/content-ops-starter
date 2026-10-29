@@ -14,7 +14,7 @@ import card_issuer
 import employees
 import mcp_spend_server
 import slack_listener
-from card_issuer import IssuedCard
+from card_issuer import CardDetails, CardDetailsUnavailable, IssuedCard
 from ledger import APPROVED, CLOSED, CREATED, DENIED, EXISTS, FAILED, OVER_CAP, PENDING, Ledger
 
 SECRET = "test-signing-secret"
@@ -35,6 +35,8 @@ class FakeIssuer:
         self.fail = fail
         self.calls = []
         self.closed = []
+        self.revealed = []
+        self.no_details = False
 
     async def issue_single_use_card(self, task_id, spend_limit_cents, account_token=None):
         self.calls.append((task_id, spend_limit_cents, account_token))
@@ -46,6 +48,14 @@ class FakeIssuer:
         if self.fail:
             raise RuntimeError("lithic unavailable")
         self.closed.append(card_token)
+
+    async def get_card_details(self, card_token):
+        if self.fail:
+            raise RuntimeError("lithic unavailable")
+        if self.no_details:
+            raise CardDetailsUnavailable("Lithic did not return the full card details.")
+        self.revealed.append(card_token)
+        return CardDetails(card_number="4111111111114242", cvv="123", exp_month="11", exp_year="2029")
 
 
 @pytest.fixture
@@ -344,6 +354,74 @@ def test_terminate_pending_or_other_employees_card_refused(env, monkeypatch):
     monkeypatch.setenv("SPEND_EMPLOYEE_ID", "EMP_B")
     assert "No card request" in call_tool("terminate_agent_card", task_id="t10")["error"]
     assert issuer.closed == []
+
+
+# --- Card details for checkout ---
+
+def test_card_details_for_approved_card(env):
+    ledger, issuer, _ = env
+    provision("c1", 500)
+    details = call_tool("get_card_details_for_checkout", task_id="c1")
+    assert details["card_number"] == "4111111111114242" and details["cvv"] == "123"
+    assert details["exp_month"] == "11" and details["exp_year"] == "2029" and details["spend_limit_cents"] == 500
+    assert issuer.revealed == ["tok-c1"]
+    row = ledger.get("c1")
+    assert row["details_reveal_count"] == 1 and row["last_revealed_at"]
+    # Never written to the ledger.
+    with sqlite3.connect(ledger.path) as conn:
+        dump = "\n".join(conn.iterdump())
+    assert "4111111111114242" not in dump and "'123'" not in dump
+
+
+def test_card_details_limited_per_card(env):
+    _, issuer, _ = env
+    provision("c2", 500)
+    for _ in range(mcp_spend_server.MAX_DETAIL_REVEALS):
+        assert "card_number" in call_tool("get_card_details_for_checkout", task_id="c2")
+    assert "already been handed out" in call_tool("get_card_details_for_checkout", task_id="c2")["error"]
+    assert len(issuer.revealed) == mcp_spend_server.MAX_DETAIL_REVEALS
+
+
+def test_card_details_only_for_open_card(env):
+    _, issuer, _ = env
+    provision("c3", 3000)  # pending approval
+    assert "no open card" in call_tool("get_card_details_for_checkout", task_id="c3")["error"]
+    provision("c4", 500)
+    call_tool("terminate_agent_card", task_id="c4")
+    assert "no open card" in call_tool("get_card_details_for_checkout", task_id="c4")["error"]
+    assert issuer.revealed == []
+
+
+def test_card_details_scoped_to_employee(env, monkeypatch):
+    _, issuer, _ = env
+    provision("c5", 500)
+    monkeypatch.setenv("SPEND_EMPLOYEE_ID", "EMP_B")
+    assert "No card request" in call_tool("get_card_details_for_checkout", task_id="c5")["error"]
+    assert issuer.revealed == []
+
+
+def test_card_details_need_opt_in_for_production(env, monkeypatch):
+    _, issuer, _ = env
+    provision("c6", 500)
+    monkeypatch.setenv("LITHIC_ENVIRONMENT", "production")
+    monkeypatch.setenv("ALLOW_PRODUCTION_CARDS", "yes")
+    monkeypatch.delenv("ALLOW_PRODUCTION_CARD_DETAILS", raising=False)
+    assert "disabled in production" in call_tool("get_card_details_for_checkout", task_id="c6")["error"]
+    assert issuer.revealed == []
+    monkeypatch.setenv("ALLOW_PRODUCTION_CARD_DETAILS", "yes")
+    assert "card_number" in call_tool("get_card_details_for_checkout", task_id="c6")
+
+
+def test_card_details_unavailable_from_lithic(env):
+    _, issuer, _ = env
+    provision("c7", 500)
+    issuer.no_details = True
+    assert "did not return" in call_tool("get_card_details_for_checkout", task_id="c7")["error"]
+
+
+def test_card_details_kept_out_of_repr():
+    details = CardDetails(card_number="4111111111114242", cvv="123", exp_month="11", exp_year="2029")
+    assert "4111111111114242" not in repr(details) and "123" not in repr(details)
 
 
 # --- Slack signature ---

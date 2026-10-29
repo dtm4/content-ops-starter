@@ -2,16 +2,24 @@
 
 Two processes share one SQLite ledger:
 
-- **`mcp_spend_server.py`**: stdio MCP server, run once per employee. Tools: `provision_agent_card`, `get_agent_card_status` and `terminate_agent_card`.
+- **`mcp_spend_server.py`**: stdio MCP server, run once per employee. Tools: `provision_agent_card`, `get_agent_card_status`, `get_card_details_for_checkout` and `terminate_agent_card`.
 - **`slack_listener.py`**: receives Approve/Deny clicks from Slack.
 
 Requests up to $10 get a single-use Lithic card immediately. Requests up to $50 post an Approve/Deny message to Slack, and anything above $50 is rejected. Each card's spend limit is the requested amount, and the card is created under the employee's own Lithic account.
 
-Agents only ever see the card token and last four digits. Full card numbers and CVVs are never returned or stored.
+## How an agent pays
+
+1. `provision_agent_card` gets a card approved, automatically or in Slack. It returns only the card token and last four digits.
+2. At the merchant's payment form, `get_card_details_for_checkout` returns the card number, CVV and expiry. They are fetched from Lithic at that moment, never stored, and the tool can be called at most 3 times per card.
+3. The agent enters them together with the cardholder name and billing address, which you supply in the agent's instructions.
+4. `terminate_agent_card` closes the card. Single-use cards also close themselves after the first purchase.
+
+The card number passes through your AI provider's conversation with the agent. What limits the damage is the card itself: it works once, only up to its spend limit, and counts against the daily cap.
 
 ## Safety defaults
 
 - Cards come from **Lithic's sandbox** unless `LITHIC_ENVIRONMENT=production` *and* `ALLOW_PRODUCTION_CARDS=yes` are both set.
+- **Card details in production:** agents only get real card numbers if `ALLOW_PRODUCTION_CARD_DETAILS=yes` is also set. Lithic only returns full card numbers in production to PCI-compliant programs, so this needs Lithic's approval first.
 - **Daily cap:** every request reserves its limit against the employee's rolling 24-hour cap (`daily_cap_cents`, default $50). Pending, issued and closed cards all count; denied and failed requests don't. Once the cap is reached, further requests are refused and Slack gets an alert, at most once every 10 minutes. This is what stops an agent stuck in a loop.
 - **Employee identity:** the employee comes from the server's `SPEND_EMPLOYEE_ID`, never from the agent's tool call. Agents can only see and close their own employee's cards.
 - **Deactivation:** setting an employee's `status` to anything but `ACTIVE` in `config/employees.json` blocks new requests and pending approvals immediately, with no restart.

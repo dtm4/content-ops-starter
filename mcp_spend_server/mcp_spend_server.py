@@ -19,12 +19,13 @@ from approvals import (
     public_view,
     request_human_approval,
 )
-from card_issuer import get_issuer
+from card_issuer import CardDetailsUnavailable, card_details_allowed, get_issuer
 from employees import current_employee_id, get_employee
 from ledger import APPROVED, CREATED, EXISTS
 
 ECOSYSTEMS = ["gemini", "claude", "openai", "grok", "unknown"]
 CAP_ALERT_INTERVAL_SECONDS = 600
+MAX_DETAIL_REVEALS = 3
 ID_RULE = "1-64 characters of letters, digits, '_', '.', ':' or '-'"
 
 server = Server("cross-platform-agent-spend")
@@ -50,7 +51,7 @@ async def handle_list_tools() -> List[types.Tool]:
                 f"{MAX_AUTO_SPEND_CENTS} cents are issued immediately; larger ones up to "
                 f"{MAX_HUMAN_CEILING_CENTS} cents wait for human approval in Slack. All requests "
                 "count against the employee's rolling 24-hour cap. Returns the card token and "
-                "last four digits, never the full card number."
+                "last four digits; call get_card_details_for_checkout when you are at the checkout."
             ),
             inputSchema={
                 "type": "object",
@@ -66,6 +67,16 @@ async def handle_list_tools() -> List[types.Tool]:
         types.Tool(
             name="get_agent_card_status",
             description="Check whether a card request is PENDING, ISSUING, APPROVED, CLOSED, DENIED or FAILED.",
+            inputSchema={"type": "object", "properties": {"task_id": id_schema}, "required": ["task_id"]},
+        ),
+        types.Tool(
+            name="get_card_details_for_checkout",
+            description=(
+                "Get the full card number, CVV and expiry of this task's approved card, to enter at the "
+                "merchant's checkout. Call it only when you are on the payment form, use the details for "
+                "this one purchase, and never write them to files, logs or messages. Limited to "
+                f"{MAX_DETAIL_REVEALS} calls per card. Call terminate_agent_card after paying."
+            ),
             inputSchema={"type": "object", "properties": {"task_id": id_schema}, "required": ["task_id"]},
         ),
         types.Tool(
@@ -130,6 +141,34 @@ async def _provision(task_id: str, arguments: Dict[str, Any], employee_id: str) 
     return _text(view)
 
 
+async def _card_details(task_id: str, row: Dict[str, Any]) -> List[types.TextContent]:
+    if not card_details_allowed():
+        return _error("Handing card details to agents is disabled in production "
+                      "(set ALLOW_PRODUCTION_CARD_DETAILS=yes to enable).")
+    if row["status"] != APPROVED:
+        return _error(f"Task {task_id} has no open card (status {row['status']}).")
+    if get_ledger().record_details_reveal(task_id, MAX_DETAIL_REVEALS) is None:
+        return _error(f"The card details for task {task_id} have already been handed out "
+                      f"{MAX_DETAIL_REVEALS} times; request a new card if the purchase failed.")
+    try:
+        details = await get_issuer().get_card_details(row["card_token"])
+    except CardDetailsUnavailable as e:
+        return _error(str(e))
+    except Exception as e:
+        sys.stderr.write(f"[ERROR] Fetching card details for task {task_id} failed: {type(e).__name__}\n")
+        return _error(f"Fetching the card details failed ({type(e).__name__}). Try again.")
+    return _text({
+        "task_id": task_id,
+        "card_number": details.card_number,
+        "cvv": details.cvv,
+        "exp_month": details.exp_month,
+        "exp_year": details.exp_year,
+        "spend_limit_cents": row["max_budget_cents"],
+        "note": "Single-use card: it works for one purchase up to the spend limit. "
+                "Use your own cardholder name and billing address.",
+    })
+
+
 async def _terminate(task_id: str, row: Dict[str, Any]) -> List[types.TextContent]:
     if row["status"] != APPROVED:
         return _error(f"Task {task_id} has no open card to close (status {row['status']}).")
@@ -152,7 +191,7 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
 
     if name == "provision_agent_card":
         return await _provision(task_id, arguments, employee_id)
-    if name not in ("get_agent_card_status", "terminate_agent_card"):
+    if name not in ("get_agent_card_status", "get_card_details_for_checkout", "terminate_agent_card"):
         raise ValueError(f"Unsupported tool: {name}")
 
     row = get_ledger().get(task_id)
@@ -161,6 +200,8 @@ async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> List[types.T
         return _error(f"No card request for task {task_id}.")
     if name == "get_agent_card_status":
         return _text(public_view(row))
+    if name == "get_card_details_for_checkout":
+        return await _card_details(task_id, row)
     return await _terminate(task_id, row)
 
 
