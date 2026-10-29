@@ -41,4 +41,5 @@ yarn-error.log*
 *.code-workspace
 .idea
 
-tmp*mcp_spend_server_production.zip
+tmp*
+mcp_spend_server_production.zip
