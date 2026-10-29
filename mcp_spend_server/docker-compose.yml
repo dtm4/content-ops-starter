@@ -1,0 +1,51 @@
+# Values come from a .env file next to this one (see .env.example).
+x-common: &common
+  image: mcp-spend-server:latest
+  restart: always
+  volumes:
+    - mcp_ledger_data:/data
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "10m"
+      max-file: "3"
+  deploy:
+    resources:
+      limits:
+        cpus: '1.0'
+        memory: 512M
+      reservations:
+        memory: 128M
+
+services:
+  mcp-spend-server:
+    <<: *common
+    build: .
+    container_name: production_mcp_spend_server
+    # stdio MCP server: keep stdin open or it exits on EOF and restart-loops
+    stdin_open: true
+    environment:
+      - LITHIC_API_KEY=${LITHIC_API_KEY:?set LITHIC_API_KEY in .env}
+      - LITHIC_ENVIRONMENT=${LITHIC_ENVIRONMENT:-sandbox}
+      - ALLOW_PRODUCTION_CARDS=${ALLOW_PRODUCTION_CARDS:-no}
+      - SPEND_APPROVAL_WEBHOOK=${SPEND_APPROVAL_WEBHOOK:-}
+
+  slack-listener:
+    <<: *common
+    container_name: production_slack_listener
+    command: ["uvicorn", "slack_listener:app", "--host", "0.0.0.0", "--port", "8080"]
+    # Bound to localhost: put an HTTPS reverse proxy or tunnel in front for Slack.
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      - mcp-spend-server
+    environment:
+      - LITHIC_API_KEY=${LITHIC_API_KEY:?set LITHIC_API_KEY in .env}
+      - LITHIC_ENVIRONMENT=${LITHIC_ENVIRONMENT:-sandbox}
+      - ALLOW_PRODUCTION_CARDS=${ALLOW_PRODUCTION_CARDS:-no}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:?set SLACK_SIGNING_SECRET in .env}
+      - SLACK_APPROVER_IDS=${SLACK_APPROVER_IDS:?set SLACK_APPROVER_IDS in .env}
+
+volumes:
+  mcp_ledger_data:
+    driver: local
