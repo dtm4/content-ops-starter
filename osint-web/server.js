@@ -252,14 +252,20 @@ async function runJob(req, res, body) {
         killTree('SIGTERM');
         setTimeout(() => killTree('SIGKILL'), 5000);
     }, timeout);
-    req.on('close', () => {
-        if (child.exitCode === null && child.signalCode === null) killTree('SIGTERM');
+    // Stop the tool if the browser goes away (res 'close' before the response finished).
+    res.on('close', () => {
+        if (!res.writableFinished && child.exitCode === null && child.signalCode === null) {
+            console.log(`[job ${id}] client disconnected, stopping ${bin}`);
+            killTree('SIGTERM');
+        }
     });
+    console.log(`[job ${id}] start ${bin} ${argv.join(' ')}`);
     child.on('error', (e) => res.write(`\n[web] could not start ${bin}: ${e.code === 'ENOENT' ? 'not installed on this server' : e.message}\n`));
     child.on('close', async (code) => {
         clearTimeout(timer);
         running--;
         if (isSf) sfRunning = false;
+        console.log(`[job ${id}] exit code=${code} signal=${child.signalCode} after ${Math.round((Date.now() - started) / 1000)}s`);
         let files = [];
         try {
             files = await listFiles(dir);
@@ -442,11 +448,16 @@ const server = http.createServer(async (req, res) => {
     }
 });
 
+process.on('uncaughtException', (e) => console.error('[server] uncaught', e));
+process.on('unhandledRejection', (e) => console.error('[server] unhandled rejection', e));
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => (console.log(`[server] received ${sig}, exiting`), process.exit(0)));
+process.on('exit', (c) => console.log(`[server] exit ${c} (pid ${process.pid})`));
+
 if (require.main === module) {
     if ((!USER || !PASS) && process.env.ALLOW_NO_AUTH !== '1') {
         console.error('Refusing to start: set OSINT_USER and OSINT_PASS (or ALLOW_NO_AUTH=1 for a localhost-only setup).');
         process.exit(1);
     }
-    server.listen(PORT, HOST, () => console.log(`osint-web listening on http://${HOST}:${PORT} (auth ${USER ? 'on' : 'OFF'})`));
+    server.listen(PORT, HOST, () => console.log(`osint-web listening on http://${HOST}:${PORT} (auth ${USER ? 'on' : 'OFF'}, pid ${process.pid})`));
 }
 module.exports = { buildCommand, Reject };
