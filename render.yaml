@@ -22,6 +22,8 @@ services:
         value: "3"
       - key: JOB_TIMEOUT
         value: "900"
+      - key: SPIDERFOOT_LITE
+        value: "1"           # starter (512 MB): -u scans use 16 tested modules; set 0 on a 2 GB+ plan
     disk:
       name: osint-home
       mountPath: /home/osint # keeps the recon-ng workspace, SpiderFoot DB and Shodan key
