@@ -61,6 +61,12 @@ h3 { margin: 0 0 10px; color: var(--c); font-size: 15px; font-weight: 800; lette
 .flag { font-weight: 800; color: var(--c); background: none; border: 0; border-left: 3px solid var(--c); padding: 0 0 0 10px; cursor: pointer; text-align: left; }
 .flag:hover { text-decoration: underline; }
 .usage span { color: #a9b4bf; }
+.steps { margin: 0; padding-left: 26px; display: grid; gap: 12px; color: #dce3ea; font-size: 14px; line-height: 1.6; max-width: 72ch; }
+.steps li::marker { color: var(--c); font-weight: 800; }
+.steps li > span { display: block; }
+.try { display: inline-block; max-width: 100%; margin-top: 5px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--c); font-size: 12.5px; font-weight: 700; text-align: left; cursor: pointer; word-break: break-all; }
+.try:hover { border-color: var(--c); }
+.try::before { content: '$ '; color: var(--muted); }
 .overview { margin: 0; font-size: 15px; line-height: 1.7; color: #dce3ea; max-width: 68ch; }
 .graphWrap { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .gbar { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 11.5px; }
@@ -102,30 +108,72 @@ button:focus-visible { outline: 2px solid var(--c, #58a6ff); outline-offset: 2px
 'use strict';
 const TOOLS = [
   { id: 'theharvester', n: '01', name: 'theHarvester', color: '#58a6ff', sub: 'Email & subdomain OSINT harvester',
-    example: 'theHarvester -d example.com -b all', comment: 'email & subdomain osint harvester',
+    steps: [
+      ['Type the domain you are assessing after -d.', 'theHarvester -d example.com -b free'],
+      ['-b picks the data sources. "free" (or "all") runs every source that needs no API key; you can also name them, comma-separated.', 'theHarvester -d example.com -b crtsh,hackertarget'],
+      ['Add -f NAME to save a report, then tap the download buttons under the output.', 'theHarvester -d example.com -b free -f report'],
+      ['Read the result: IPs, emails and hosts found. Paste an IP into the Shodan slide to see what it exposes.']],
+    example: 'theHarvester -d example.com -b all', comment: 'email & subdomain osint harvester · -b all runs the free sources',
     usage: [['-d', 'Target domain or company'], ['-b', 'Data source (or all)'], ['-l', 'Limit results (default 500)'], ['-f', 'Save to file (XML + JSON)']],
     overview: 'theHarvester is where most engagements begin. Point it at a domain and it pulls emails, subdomains, hosts and IPs from 50+ OSINT sources, mapping the external attack surface without sending a packet to the target.' },
   { id: 'spiderfoot', n: '02', name: 'SpiderFoot', color: '#b48cff', sub: 'OSINT automation + correlation engine',
+    steps: [
+      ['Put your target after -s: a domain, an IP address or an email.', 'spiderfoot -s example.com -u passive -o tab -q'],
+      ['-u picks the scan type. On this server every use case runs a tested set of passive modules.'],
+      ['To run specific modules, list them with -m (see all of them with -M).', 'spiderfoot -M'],
+      ['Scans stream results as they arrive and can take 10+ minutes on big targets. Press ■ to stop. One scan runs at a time.'],
+      ['Use -o csv or -o json if you want to copy the output into a spreadsheet.', 'spiderfoot -s example.com -m sfp_dnsresolve,sfp_crt,sfp_whois -o csv -q']],
     example: 'spiderfoot -s example.com -u passive -o tab -q', comment: 'osint automation + correlation engine · big targets can take 10+ minutes; ■ stops a scan',
     usage: [['-s', 'Target (domain/IP/email)'], ['-u', 'Use case (footprint/passive)'], ['-m', 'Modules to enable'], ['-o', 'Output (tab/csv/json)']],
     overview: 'Point SpiderFoot at a domain, IP or email and it fans out across 200+ modules, then a built-in correlation engine stitches the hits into one map of names, IPs, emails, ports and leaks.' },
   { id: 'maltego', n: '03', name: 'Maltego', color: '#f47fbf', sub: 'OSINT link-analysis graphs', graph: true, prompt: 'entity ›',
+    steps: [
+      ['Type a domain, IP address or email and press ↵. It appears on the graph as an entity.', 'example.com'],
+      ['Tap (or right-click) the entity and choose a transform, or "Run all transforms".'],
+      ['New entities appear linked to it. Tap any of them to keep pivoting, e.g. an IP → To Ports (Shodan).'],
+      ['Drag entities to rearrange. Tap one to highlight its links. "⤓ csv" exports the graph; type "new" to start over.', 'new']],
     example: 'example.com', comment: 'GUI: drop in an entity → right-click / tap it → run Transforms',
     usage: [['DNS from Domain', 'resolve live hosts'], ['To Email (Whois)', 'registrant emails'], ['To Netblock', 'owned IP ranges'], ['•', 'Pivot the graph visually']],
     overview: 'Maltego turns scattered data into a picture. Drop in a domain, email or name and run transforms to pull related entities, then watch the links between people, infrastructure and accounts render as a graph you can pivot.' },
   { id: 'sherlock', n: '04', name: 'Sherlock', color: '#e8b84a', sub: 'Username enumeration across 400+ sites',
+    steps: [
+      ['Type one or more usernames after "sherlock" (up to 5).', 'sherlock johndoe'],
+      ['By default only sites where the name exists are listed. Add --print-all to see misses too.', 'sherlock johndoe --print-all'],
+      ['Check just a few sites with --site (repeatable).', 'sherlock johndoe --site GitHub --site Reddit'],
+      ['Add --csv to get a spreadsheet; a results file download appears under the output.', 'sherlock johndoe --csv'],
+      ['A hit only means the name is taken on that site. Open the link and verify it is the same person.']],
     example: 'sherlock johndoe', comment: 'username enumeration across 400+ sites',
     usage: [['--print-all', 'show misses too (default: only found)'], ['--site', 'limit to one site'], ['--timeout', 'per-request timeout'], ['--csv', 'export results']],
     overview: "Sherlock hunts a username across 400+ networks at once. Hand it a handle and it checks GitHub, Reddit, social and gaming sites in parallel, surfacing candidate profiles to verify across one person's online presence." },
   { id: 'shodan', n: '05', name: 'Shodan', color: '#3fb950', sub: 'Search engine for exposed devices',
+    steps: [
+      ['Look up one IP address: open ports, hostnames, software and known CVEs.', 'shodan host 1.1.1.1'],
+      ['List a domain\'s subdomains and DNS records.', 'shodan domain example.com'],
+      ['Search without a key works for three filters: net: (a /24 or smaller), ip: and hostname:.', 'shodan search net:198.51.100.0/28'],
+      ['count returns how many open ports match the same filters.', 'shodan count hostname:example.com'],
+      ['Any other search filter (product:, country:, port: …) needs a free key from account.shodan.io, added as SHODAN_API_KEY in Render → Environment.']],
     example: 'shodan host 198.51.100.23', comment: 'search engine for exposed devices',
     usage: [['host', 'all info for an IP'], ['domain', 'subdomains & DNS'], ['search', 'query the database'], ['count', 'number of matches']],
     overview: "Shodan scans the whole internet so you don't have to. Query an IP, domain or service and it returns open ports, banners and software versions: the public-facing attack surface, searchable like Google." },
   { id: 'phoneinfoga', n: '06', name: 'phoneinfoga', color: '#f0883e', sub: 'Phone number OSINT (footprints)',
+    steps: [
+      ['Type the number in international format after -n: + country code, then the number.', 'phoneinfoga scan -n +12025550143'],
+      ['"Results for local" shows the country and formats. "googlesearch" lists ready-made search links.'],
+      ['Tap a link to run that search in a new tab: social networks, people-finder sites, spam-report sites, documents.'],
+      ['See which scanners exist; skip one with -D.', 'phoneinfoga scanners']],
     example: 'phoneinfoga scan -n +12025550143', comment: 'phone number osint (footprints)',
-    usage: [['-n', 'number to scan (E164)'], ['-D', 'skip a scanner'], ['scanners', 'list available scanners'], ['serve', 'launch web UI (this page)']],
+    usage: [['-n', 'number to scan (E164)'], ['-D', 'skip a scanner'], ['scanners', 'list available scanners'], ['version', 'show the installed version']],
     overview: 'phoneinfoga profiles a phone number from its digits. Feed it an E164 number and it parses country and format, then builds ready-to-run search-engine footprints to surface it across social and people-finder sites.' },
   { id: 'reconng', n: '07', name: 'recon-ng', color: '#58a6ff', sub: 'Modular recon framework',
+    steps: [
+      ['Load a module (the common free ones are pre-installed).', 'modules load recon/domains-hosts/hackertarget'],
+      ['Point it at your target domain.', 'options set SOURCE example.com'],
+      ['Run it. Results are saved in the workspace database.', 'run'],
+      ['View what was found.', 'show hosts'],
+      ['Chain a second module on those results: leave SOURCE unset and it reads the hosts table.', 'modules load recon/hosts-ports/internetdb'],
+      ['Run the second module.', 'run'],
+      ['View the open ports it found (CVEs: show vulnerabilities).', 'show ports'],
+      ['Find more modules, and install any that are missing.', 'marketplace search hosts']],
     example: 'marketplace install recon/domains-hosts/hackertarget', comment: 'modular recon framework · install → modules load → options set SOURCE → run → show hosts',
     usage: [['marketplace search', 'find modules'], ['modules load', 'load a module'], ['options set', 'configure input'], ['run', 'execute the module']],
     overview: 'recon-ng runs recon like Metasploit. Load a module from the marketplace, point it at a domain and run it, and results flow into a shared database that later modules build on, chaining hosts, contacts and ports into one workspace.' }
@@ -257,6 +305,7 @@ function buildSlide(t, idx) {
       h('form', { class: 'cmd', onsubmit: (e) => { e.preventDefault(); run(); } }, promptEl, input, runBtn),
       log, tfoot),
     graph ? graph.el : null,
+    h('section', {}, h('h3', {}, 'How to use'), h('ol', { class: 'steps' }, t.steps.map(([text, cmd]) => h('li', {}, h('span', {}, text), cmd ? h('button', { type: 'button', class: 'try', title: 'Put this command in the terminal', onclick: () => { input.value = cmd; input.focus(); el.querySelector('.term').scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } }, cmd) : null)))),
     h('section', {}, h('h3', {}, 'Usage'), h('div', { class: 'usage' }, t.usage.flatMap(([f, d]) => [h('button', { type: 'button', class: 'flag', onclick: () => insert(f) }, f), h('span', {}, d)]))),
     h('section', {}, h('h3', {}, 'Overview'), h('p', { class: 'overview' }, t.overview)));
   return el;

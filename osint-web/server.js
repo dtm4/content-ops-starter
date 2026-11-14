@@ -86,6 +86,8 @@ function tokenize(line) {
     return out;
 }
 
+// theHarvester sources that work without an API key (verified on the deployed server).
+const TH_FREE = (process.env.THEHARVESTER_FREE_SOURCES || 'crtsh,hackertarget,rapiddns,otx,urlscan,certspotter,subdomaincenter,thc,waybackarchive,commoncrawl,duckduckgo,yahoo').split(',');
 const SF = (process.env.SPIDERFOOT_CMD || 'spiderfoot').split(' ');
 // Keyless passive modules verified to run together within 512 MB.
 const SF_LITE = (process.env.SPIDERFOOT_LITE_MODULES || 'sfp_dnsresolve,sfp_crt,sfp_hackertarget,sfp_whois,sfp_spfdmarc,sfp_email,sfp_pgp,sfp_robtex,sfp_certspotter,sfp_bgpview,sfp_arin,sfp_ripe,sfp_internetdb,sfp_dnsraw,sfp_urlscan,sfp_threatminer').split(',');
@@ -104,6 +106,15 @@ function buildCommand(tool, line, ctx) {
         case 'theharvester': {
             if (b !== 'theharvester') throw new Reject('this terminal runs: theHarvester …');
             const a = checkFlags(args, { '-d': 'word', '--domain': 'word', '-b': 'list', '--source': 'list', '-l': 'int', '--limit': 'int', '-S': 'int', '--start': 'int', '-f': 'file', '--filename': 'file', '-n': true, '--dns-lookup': true, '-c': true, '--dns-brute': true, '-s': true, '--shodan': true, '-q': true, '--quiet': true, '-h': true, '--help': true });
+            // No API keys are configured for theHarvester, so `-b all` would mostly print
+            // missing-key errors. `all` and `free` run the sources that need no key.
+            for (const f of ['-b', '--source']) {
+                const i = a.indexOf(f);
+                if (i >= 0 && ['all', 'free'].includes(a[i + 1].toLowerCase()) && process.env.THEHARVESTER_KEYS !== '1') {
+                    ctx.notice = `[web] -b ${a[i + 1]} → ${TH_FREE.length} free sources that need no API key:\n      ${TH_FREE.join(',')}\n\n`;
+                    a[i + 1] = TH_FREE.join(',');
+                }
+            }
             return ['theHarvester', a, 600e3];
         }
         case 'spiderfoot': {
@@ -153,7 +164,19 @@ function buildCommand(tool, line, ctx) {
             if (!sub || !subs[sub]) throw new Reject(`allowed: shodan ${Object.keys(subs).filter((x) => !x.startsWith('-')).join(' | ')}`);
             const checked = subs[sub]();
             // Without an API key the CLI refuses everything; answer `host` from Shodan's free InternetDB instead.
-            if (!process.env.SHODAN_API_KEY && sub === 'host') return ['@internetdb', checked.filter((x) => RE.ip.test(x)), 30e3];
+            if (!process.env.SHODAN_API_KEY) {
+                // No key: answer from free public data instead of failing.
+                const words = checked.filter((x) => !x.startsWith('-'));
+                if (sub === 'host') return ['@internetdb', words.filter((x) => RE.ip.test(x)), 30e3];
+                if (sub === 'domain') return ['@ctdomain', words, 60e3];
+                if (sub === 'myip') return ['@myip', [], 15e3];
+                if (sub === 'search' || sub === 'count') {
+                    const q = words.join(' ').trim();
+                    const m = q.match(/^(net|ip|hostname):(\S+)$/i);
+                    if (!m) throw new Reject(`without an API key, shodan ${sub} supports: net:<CIDR /24 or smaller>, ip:<address>, hostname:<domain> (answered from free InternetDB). Any other query needs a free key from account.shodan.io set as SHODAN_API_KEY. Same query on the web: https://www.shodan.io/search?query=${encodeURIComponent(q)}`);
+                    return ['@idbsearch', [sub, m[1].toLowerCase(), m[2]], 120e3];
+                }
+            }
             return ['shodan', [sub, ...checked], 180e3];
         }
         case 'phoneinfoga': {
@@ -235,9 +258,13 @@ async function runJob(req, res, body) {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', 'X-Job': id });
 
     const started = Date.now();
-    if (bin === '@internetdb') {
+    if (bin.startsWith('@')) {
+        const w = (s) => res.write(s);
         try {
-            await internetdbHost(argv[0], (s) => res.write(s));
+            if (bin === '@internetdb') await internetdbHost(argv[0], w);
+            else if (bin === '@ctdomain') await freeDomain(argv[0], w);
+            else if (bin === '@myip') w(`${(await fetchJson('https://api.ipify.org?format=json')).ip}\n`);
+            else if (bin === '@idbsearch') await freeSearch(argv[0], argv[1], argv[2], w);
         } catch (e) {
             res.write(`Error: ${e.message}\n`);
         }
@@ -245,7 +272,6 @@ async function runJob(req, res, body) {
         return res.end(`\n\x1e${JSON.stringify({ job: id, code: 0, seconds: Math.round((Date.now() - started) / 1000), files: [] })}`);
     }
     if (body.ctx?.notice) res.write(body.ctx.notice);
-    if (body.tool === 'shodan' && !process.env.SHODAN_API_KEY) res.write('[web] No SHODAN_API_KEY on this server: only `shodan host` works (via free InternetDB). Add a key in Render → Environment for domain/search/count.\n\n');
     const child = spawn(bin, argv, {
         cwd: dir,
         env: { ...process.env, PYTHONWARNINGS: 'ignore', NO_COLOR: '1', TERM: 'dumb', PYTHONUNBUFFERED: '1', COLUMNS: '120', HOME: process.env.HOME || dir },
@@ -326,6 +352,69 @@ async function internetdbHost(ip, write) {
     d.ports.forEach((p) => write(`     ${p}/tcp\n`));
     if (d.cpes.length) write(`\nSoftware (CPE):\n${d.cpes.map((c) => `     ${c}\n`).join('')}`);
     write('\nSource: Shodan InternetDB (no API key). Add SHODAN_API_KEY for banners, org, location and history.\n');
+}
+
+/** `shodan domain` without a key: subdomains from certificate transparency + DNS. */
+async function freeDomain(domain, write) {
+    write(`${domain.toUpperCase()}\n\n`);
+    const row = (sub, type, value) => write(`${sub.padEnd(32)}${type.padEnd(8)}${value}\n`);
+    for (const [type, fn] of [['A', (d) => dns.resolve4(d)], ['AAAA', (d) => dns.resolve6(d)], ['NS', (d) => dns.resolveNs(d)], ['MX', async (d) => (await dns.resolveMx(d)).map((m) => m.exchange)], ['TXT', async (d) => (await dns.resolveTxt(d)).map((c) => c.join(''))]]) {
+        (await fn(domain).catch(() => [])).forEach((v) => row('', type, v));
+    }
+    let names = [];
+    try {
+        const rows = await fetchJson(`https://crt.sh/?q=%25.${encodeURIComponent(domain)}&output=json`, 30000);
+        names = uniq(rows.flatMap((r) => String(r.name_value).split('\n')).map((n) => n.trim().toLowerCase().replace(/^\*\./, '')).filter((n) => n.endsWith(`.${domain}`))).sort();
+    } catch (e) {
+        write(`[crt.sh unavailable: ${e.message}]\n`);
+    }
+    const shown = names.slice(0, 150);
+    for (let i = 0; i < shown.length; i += 20) {
+        await Promise.all(shown.slice(i, i + 20).map(async (n) => {
+            const ips = await dns.resolve4(n).catch(() => []);
+            const sub = n.slice(0, -(domain.length + 1));
+            if (ips.length) ips.forEach((ip) => row(sub, 'A', ip));
+            else row(sub, 'CT', '(no A record)');
+        }));
+    }
+    if (names.length > shown.length) write(`… ${names.length - shown.length} more subdomains not shown\n`);
+    write('\nSource: certificate transparency (crt.sh) + DNS, no API key. Add SHODAN_API_KEY for Shodan\'s own DNS data.\n');
+}
+
+/** `shodan search|count net:/ip:/hostname:` without a key, from InternetDB. */
+async function freeSearch(mode, kind, value, write) {
+    let ips = [];
+    if (kind === 'ip') {
+        if (!RE.ip.test(value)) throw new Error('ip: needs an IPv4 address');
+        ips = [value];
+    } else if (kind === 'net') {
+        const m = value.match(/^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/);
+        if (!m || !RE.ip.test(m[1]) || +m[2] < 24 || +m[2] > 32) throw new Error('net: needs an IPv4 CIDR of /24 or smaller, e.g. net:198.51.100.0/24');
+        const base = m[1].split('.').reduce((a, o) => a * 256 + +o, 0);
+        const size = 2 ** (32 - +m[2]);
+        const start = Math.floor(base / size) * size;
+        for (let i = 0; i < size; i++) ips.push([24, 16, 8, 0].map((s) => Math.floor((start + i) / 2 ** s) % 256).join('.'));
+    } else {
+        if (!RE.domain.test(value)) throw new Error('hostname: needs a domain');
+        const names = [value];
+        try {
+            const rows = await fetchJson(`https://crt.sh/?q=%25.${encodeURIComponent(value)}&output=json`, 30000);
+            names.push(...uniq(rows.flatMap((r) => String(r.name_value).split('\n')).map((n) => n.trim().toLowerCase().replace(/^\*\./, '')).filter((n) => n.endsWith(`.${value}`))).slice(0, 80));
+        } catch {}
+        const found = await Promise.all(names.map((n) => dns.resolve4(n).catch(() => [])));
+        ips = uniq(found.flat()).slice(0, 64);
+    }
+    const hits = [];
+    for (let i = 0; i < ips.length; i += 8) {
+        const part = await Promise.all(ips.slice(i, i + 8).map((ip) => fetchJson(`https://internetdb.shodan.io/${ip}`).catch(() => null)));
+        part.forEach((d) => d && d.ports && d.ports.length && hits.push(d));
+    }
+    if (mode === 'count') write(`${hits.reduce((n, d) => n + d.ports.length, 0)}\n`);
+    else {
+        for (const d of hits) for (const p of d.ports) write(`${d.ip.padEnd(16)}${String(p).padEnd(7)}${(d.hostnames[0] || '').padEnd(36)}${d.cpes.slice(0, 2).join(' ')}${d.vulns.length ? `  [${d.vulns.length} CVE]` : ''}\n`);
+        if (!hits.length) write('No results found\n');
+    }
+    write(`\nSource: Shodan InternetDB for ${ips.length} address(es), no API key. Full search filters need SHODAN_API_KEY.\n`);
 }
 
 // ---------------------------------------------------------------- Maltego-style transforms

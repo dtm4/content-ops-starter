@@ -8,21 +8,35 @@ if [ "$(id -u)" = "0" ]; then
     exec setpriv --reuid=osint --regid=osint --init-groups env HOME=/home/osint "$0" "$@"
 fi
 
+rc() { recon-cli -w web --no-analytics -C "$1" >/dev/null 2>&1 || true; }
+
+# Keyless recon-ng module shipped with this app (Shodan InternetDB).
+mkdir -p "$HOME/.recon-ng/modules"
+cp -r /app/recon-modules/. "$HOME/.recon-ng/modules/"
+
 # Configure tool API keys from the environment (never from the web UI).
 if [ -n "$SHODAN_API_KEY" ]; then
     shodan init "$SHODAN_API_KEY" >/dev/null 2>&1 && echo "shodan: API key configured" || echo "shodan: key rejected"
-    recon-cli -w web --no-analytics -C "keys add shodan_api $SHODAN_API_KEY" >/dev/null 2>&1 || true
+    rc "keys add shodan_api $SHODAN_API_KEY"
 fi
 
-# A fresh persistent disk hides the modules installed at build time: reinstall in the background.
-if [ ! -d "$HOME/.recon-ng/modules/recon" ]; then
+# Install the keyless, passive recon-ng modules once per disk (marker is versioned).
+MARK="$HOME/.recon-ng/.osint-web-modules-v2"
+if [ ! -f "$MARK" ]; then
     (
-        recon-cli -w web --no-analytics -C "marketplace refresh" >/dev/null 2>&1 || true
+        rc "marketplace refresh"
         for m in recon/domains-hosts/hackertarget recon/domains-hosts/certificate_transparency \
-                 recon/hosts-hosts/resolve recon/domains-contacts/whois_pocs recon/hosts-ports/shodan_ip; do
-            recon-cli -w web --no-analytics -C "marketplace install $m" >/dev/null 2>&1 || true
+                 recon/domains-hosts/threatminer recon/domains-hosts/mx_spf_ip recon/domains-hosts/brute_hosts \
+                 recon/hosts-hosts/resolve recon/hosts-hosts/reverse_resolve \
+                 recon/domains-contacts/whois_pocs recon/domains-contacts/pgp_search \
+                 recon/netblocks-hosts/reverse_resolve recon/netblocks-companies/whois_orgs \
+                 recon/companies-multi/whois_miner reporting/csv reporting/json reporting/html; do
+            rc "marketplace install $m"
         done
-        echo "recon-ng: default modules installed"
+        if [ -n "$SHODAN_API_KEY" ]; then rc "marketplace install recon/hosts-ports/shodan_ip"
+        else rc "marketplace remove recon/hosts-ports/shodan_ip"; fi   # avoids a missing-key warning on every command
+        touch "$MARK"
+        echo "recon-ng: keyless modules installed"
     ) &
 fi
 exec node server.js

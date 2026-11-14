@@ -34,16 +34,10 @@ RUN useradd --create-home --shell /usr/sbin/nologin osint
 WORKDIR /app
 COPY server.js entrypoint.sh ./
 COPY public ./public
+COPY recon-modules ./recon-modules
 RUN chmod 0755 entrypoint.sh && mkdir -p /tmp/osint-jobs && chown osint:osint /tmp/osint-jobs
 USER osint
 ENV HOME=/home/osint PORT=8080
-
-# Pre-load the recon-ng marketplace index and the modules the UI suggests.
-RUN recon-cli -w web --no-analytics -C "marketplace refresh" >/dev/null 2>&1 || true; \
-    for m in recon/domains-hosts/hackertarget recon/domains-hosts/certificate_transparency \
-             recon/hosts-hosts/resolve recon/domains-contacts/whois_pocs recon/hosts-ports/shodan_ip; do \
-      recon-cli -w web --no-analytics -C "marketplace install $m" >/dev/null 2>&1 || true; \
-    done
 
 # The entrypoint starts as root only to chown a mounted disk, then drops to osint.
 USER root

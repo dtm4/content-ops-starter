@@ -32,11 +32,11 @@ Recommended size: 2 GB RAM, 1–2 vCPU.
 
 | Slide | Example |
 |---|---|
-| 01 theHarvester | `theHarvester -d example.com -b all -f report` (then download `report.json` / `report.xml`) |
+| 01 theHarvester | `theHarvester -d example.com -b free -f report` (then download `report.json` / `report.xml`). `-b all` and `-b free` run the sources that need no API key |
 | 02 SpiderFoot | `spiderfoot -s example.com -u passive -o tab -q` (`footprint` and `investigate` can run 10+ minutes) |
 | 03 Maltego | Type `example.com`, then tap or right-click it and pick a transform or "Run all transforms" |
 | 04 Sherlock | `sherlock johndoe --csv` |
-| 05 Shodan | `shodan host 198.51.100.23`, `shodan domain example.com`, `shodan search "product:nginx"`, `shodan count …` (all need `SHODAN_API_KEY`) |
+| 05 Shodan | `shodan host 198.51.100.23`, `shodan domain example.com`, `shodan search net:198.51.100.0/28` and `shodan count hostname:example.com` work without a key (InternetDB, crt.sh, DNS). Other search filters need `SHODAN_API_KEY` |
 | 06 PhoneInfoga | `phoneinfoga scan -n +12025550143` |
 | 07 recon-ng | `marketplace install recon/domains-hosts/hackertarget` → `modules load recon/domains-hosts/hackertarget` → `options set SOURCE example.com` → `run` → `show hosts` |
 
