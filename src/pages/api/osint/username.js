@@ -4,12 +4,12 @@ import { rateLimit, fetchWithTimeout, onlyGet, USERNAME_RE } from '../../../util
 // GET /api/osint/username?u=johndoe
 // Sherlock-style: probes each site in parallel and classifies the result.
 
-async function checkSite(site, username) {
+async function checkSite(site, username, timeoutMs = 6000) {
     const target = (site.probe || site.url).replace('{}', encodeURIComponent(username));
     const profile = site.url.replace('{}', encodeURIComponent(username));
     const started = Date.now();
     try {
-        const res = await fetchWithTimeout(target, { redirect: 'manual', timeoutMs: 8000 });
+        const res = await fetchWithTimeout(target, { redirect: 'manual', timeoutMs });
         const ms = Date.now() - started;
         let status;
         if (site.errorType === 'message') {
@@ -39,7 +39,13 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Username must be 2-40 chars: letters, digits, dot, dash, underscore.' });
     }
 
-    const results = await Promise.all(sites.map((s) => checkSite(s, username)));
+    // ?site=GitHub&site=Reddit limits the check; ?timeout=N (seconds, 1-8)
+    const only = [].concat(req.query.site || []).map((x) => String(x).toLowerCase());
+    const list = only.length ? sites.filter((s) => only.some((o) => s.name.toLowerCase().includes(o))) : sites;
+    if (!list.length) return res.status(400).json({ error: `No site matches: ${only.join(', ')}` });
+    const timeoutMs = Math.min(Math.max(Number(req.query.timeout) || 6, 1), 8) * 1000;
+
+    const results = await Promise.all(list.map((s) => checkSite(s, username, timeoutMs)));
     const order = { found: 0, unknown: 1, error: 2, not_found: 3 };
     results.sort((a, b) => order[a.status] - order[b.status] || a.site.localeCompare(b.site));
 

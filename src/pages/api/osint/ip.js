@@ -1,4 +1,4 @@
-import { promises as dns } from 'dns';
+import { reverseDns } from '../../../utils/osint/lib';
 import { rateLimit, fetchWithTimeout, onlyGet, isPublicIPv4 } from '../../../utils/osint/server';
 
 // GET /api/osint/ip?ip=1.2.3.4
@@ -10,7 +10,7 @@ import { rateLimit, fetchWithTimeout, onlyGet, isPublicIPv4 } from '../../../uti
 
 export default async function handler(req, res) {
     if (!onlyGet(req, res)) return;
-    if (!rateLimit(req, res, { key: 'ip', limit: 15 })) return;
+    if (!rateLimit(req, res, { key: 'ip', limit: 40 })) return;
 
     const ip = String(req.query.ip || '').trim();
     if (!isPublicIPv4(ip)) return res.status(400).json({ error: 'Enter a public IPv4 address.' });
@@ -18,11 +18,11 @@ export default async function handler(req, res) {
     const out = { ip, sources: {}, reverse: [], internetdb: null, shodan: null };
 
     const tasks = [
-        dns.reverse(ip).then(
+        reverseDns(ip).then(
             (v) => (out.reverse = v),
             () => {}
         ),
-        fetchWithTimeout(`https://internetdb.shodan.io/${ip}`, { timeoutMs: 10000 })
+        fetchWithTimeout(`https://internetdb.shodan.io/${ip}`, { timeoutMs: 7000 })
             .then(async (r) => {
                 if (r.status === 404) {
                     out.sources.internetdb = 'no data';
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     const key = process.env.SHODAN_API_KEY;
     if (key) {
         tasks.push(
-            fetchWithTimeout(`https://api.shodan.io/shodan/host/${ip}?key=${encodeURIComponent(key)}`, { timeoutMs: 15000 })
+            fetchWithTimeout(`https://api.shodan.io/shodan/host/${ip}?key=${encodeURIComponent(key)}`, { timeoutMs: 8500 })
                 .then(async (r) => {
                     const body = await r.json().catch(() => ({}));
                     if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);

@@ -7,7 +7,8 @@ export const TOOL_NAV = [
     { href: '/tools/username/', label: 'username' },
     { href: '/tools/ip/', label: 'ip' },
     { href: '/tools/phone/', label: 'phone' },
-    { href: '/tools/cli/', label: 'cli kit' }
+    { href: '/tools/cli/', label: 'cli kit' },
+    { href: '/osint/', label: 'carousel' }
 ];
 
 export default function ToolLayout({ title, subtitle, accent = '#58a6ff', active, children }) {
