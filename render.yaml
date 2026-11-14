@@ -1,0 +1,30 @@
+# Render Blueprint: deploys osint-web (the real OSINT tools behind a web UI).
+# Render dashboard → New → Blueprint → pick this repo.
+services:
+  - type: web
+    name: osint-web
+    runtime: docker
+    rootDir: osint-web
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter            # SpiderFoot/recon-ng need an always-on instance; free plans sleep and cap RAM
+    region: oregon
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: OSINT_USER
+        value: analyst
+      - key: OSINT_PASS
+        generateValue: true  # Render generates a strong password; read it in the service's Environment tab
+      - key: SHODAN_API_KEY
+        sync: false          # optional: paste your key in the dashboard
+      - key: MAX_JOBS
+        value: "3"
+      - key: JOB_TIMEOUT
+        value: "900"
+      - key: SPIDERFOOT_LITE
+        value: "1"           # starter (512 MB): -u scans use 16 tested modules; set 0 on a 2 GB+ plan
+    disk:
+      name: osint-home
+      mountPath: /home/osint # keeps the recon-ng workspace, SpiderFoot DB and Shodan key
+      sizeGB: 1

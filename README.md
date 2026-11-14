@@ -72,3 +72,14 @@ Here are a few suggestions on what to do next if you're new to Netlify visual ed
 ## Support
 
 If you get stuck along the way, get help in our [support forums](https://answers.netlify.com/).
+
+## OSINT toolkit
+
+This repo also ships a passive-recon toolkit:
+
+- **Web tools** at `/tools/`: Domain Recon (crt.sh + HackerTarget + DNS, with a link graph), Username Search (34 sites), IP Exposure (Shodan InternetDB), and Phone Profiler (runs in the browser). API routes live in `src/pages/api/osint/`.
+  - Optional: set `SHODAN_API_KEY` in the Netlify or hosting env to add full Shodan host records (banners, org, ASN) to IP Exposure.
+  - Each API route has a per-IP rate limit (in-memory, per instance). Private and reserved IPs are rejected.
+- **CLI kit** in `osint-kit/`: `./osint install` installs theHarvester, SpiderFoot, Sherlock, Shodan CLI, PhoneInfoga and recon-ng into isolated venvs. See [`osint-kit/README.md`](osint-kit/README.md).
+
+Use them only on assets you own or are authorised to assess.

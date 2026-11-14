@@ -1,0 +1,18 @@
+services:
+  osint-web:
+    build: .
+    image: osint-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      OSINT_USER: ${OSINT_USER:?set OSINT_USER in .env}
+      OSINT_PASS: ${OSINT_PASS:?set OSINT_PASS in .env}
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+      MAX_JOBS: ${MAX_JOBS:-3}
+      JOB_TIMEOUT: ${JOB_TIMEOUT:-900}
+    volumes:
+      - osint-home:/home/osint   # keeps recon-ng workspace, SpiderFoot DB, keys
+
+volumes:
+  osint-home:
