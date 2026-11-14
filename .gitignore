@@ -42,3 +42,4 @@ yarn-error.log*
 .idea
 
 tmp*
+mcp_spend_server_production.zip

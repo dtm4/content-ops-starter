@@ -1,0 +1,18 @@
+{
+  "employees": [
+    {
+      "employee_id": "EMP_ANTHONY_D",
+      "display_name": "Anthony DeToma",
+      "lithic_account_token": "",
+      "status": "ACTIVE",
+      "daily_cap_cents": 5000
+    },
+    {
+      "employee_id": "EMP_DEV_B",
+      "display_name": "Lead Developer B",
+      "lithic_account_token": "",
+      "status": "ACTIVE",
+      "daily_cap_cents": 5000
+    }
+  ]
+}
