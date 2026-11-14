@@ -106,7 +106,7 @@ const TOOLS = [
     usage: [['-d', 'Target domain or company'], ['-b', 'Data source (or all)'], ['-l', 'Limit results (default 500)'], ['-f', 'Save to file (XML + JSON)']],
     overview: 'theHarvester is where most engagements begin. Point it at a domain and it pulls emails, subdomains, hosts and IPs from 50+ OSINT sources, mapping the external attack surface without sending a packet to the target.' },
   { id: 'spiderfoot', n: '02', name: 'SpiderFoot', color: '#b48cff', sub: 'OSINT automation + correlation engine',
-    example: 'spiderfoot -s example.com -u passive -o tab -q', comment: 'osint automation + correlation engine · footprint/investigate scans can take several minutes',
+    example: 'spiderfoot -s example.com -u passive -o tab -q', comment: 'osint automation + correlation engine · big targets can take 10+ minutes; ■ stops a scan',
     usage: [['-s', 'Target (domain/IP/email)'], ['-u', 'Use case (footprint/passive)'], ['-m', 'Modules to enable'], ['-o', 'Output (tab/csv/json)']],
     overview: 'Point SpiderFoot at a domain, IP or email and it fans out across 200+ modules, then a built-in correlation engine stitches the hits into one map of names, IPs, emails, ports and leaks.' },
   { id: 'maltego', n: '03', name: 'Maltego', color: '#f47fbf', sub: 'OSINT link-analysis graphs', graph: true, prompt: 'entity ›',

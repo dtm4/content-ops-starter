@@ -87,6 +87,9 @@ function tokenize(line) {
 }
 
 const SF = (process.env.SPIDERFOOT_CMD || 'spiderfoot').split(' ');
+// Keyless passive modules verified to run together within 512 MB.
+const SF_LITE = (process.env.SPIDERFOOT_LITE_MODULES || 'sfp_dnsresolve,sfp_crt,sfp_hackertarget,sfp_whois,sfp_spfdmarc,sfp_email,sfp_pgp,sfp_robtex,sfp_certspotter,sfp_bgpview,sfp_arin,sfp_ripe,sfp_internetdb,sfp_dnsraw,sfp_urlscan,sfp_threatminer').split(',');
+const SF_LITE_MAX = Number(process.env.SPIDERFOOT_LITE_MAX || 25);
 const RECON = process.env.RECON_CLI || 'recon-cli';
 
 /** Map a web command line to [bin, argv, timeoutMs]. Throws Reject. */
@@ -109,6 +112,17 @@ function buildCommand(tool, line, ctx) {
             // SpiderFoot runs up to ~150 modules at once by default, which exhausts a
             // small instance. Cap concurrency unless the user sets it explicitly.
             if (!a.includes('-max-threads')) a.push('-max-threads', process.env.SPIDERFOOT_THREADS || '3');
+            // On a small instance (SPIDERFOOT_LITE=1) a -u use case starts ~150 modules at once and the
+            // memory spike gets the whole container killed. Map it to a tested keyless module set instead.
+            if (process.env.SPIDERFOOT_LITE === '1') {
+                const mi = a.indexOf('-m');
+                if (mi >= 0 && a[mi + 1].split(',').length > SF_LITE_MAX) throw new Reject(`this server runs at most ${SF_LITE_MAX} SpiderFoot modules per scan (small instance); pick fewer with -m, or upgrade the instance and set SPIDERFOOT_LITE=0`);
+                const ui = a.indexOf('-u');
+                if (ui >= 0) {
+                    ctx.notice = `[web] -u ${a[ui + 1]} → ${SF_LITE.length} tested passive modules (small instance; full use cases need 2 GB RAM, then set SPIDERFOOT_LITE=0):\n      ${SF_LITE.join(',')}\n\n`;
+                    a.splice(ui, 2, '-m', SF_LITE.join(','));
+                }
+            }
             const u = a[a.indexOf('-u') + 1];
             if (a.includes('-u') && !['all', 'footprint', 'investigate', 'passive'].includes(u)) throw new Reject('-u must be all, footprint, investigate or passive');
             const o = a[a.indexOf('-o') + 1];
@@ -202,7 +216,9 @@ const ANSI = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[(
 async function runJob(req, res, body) {
     let bin, argv, timeout;
     try {
-        [bin, argv, timeout] = buildCommand(body.tool, body.cmd, body.ctx || {});
+        body.ctx = body.ctx && typeof body.ctx === 'object' ? body.ctx : {};
+        delete body.ctx.notice; // set only by buildCommand
+        [bin, argv, timeout] = buildCommand(body.tool, body.cmd, body.ctx);
     } catch (e) {
         if (e instanceof Reject) return json(res, 400, { error: e.message });
         throw e;
@@ -228,6 +244,7 @@ async function runJob(req, res, body) {
         running--;
         return res.end(`\n\x1e${JSON.stringify({ job: id, code: 0, seconds: Math.round((Date.now() - started) / 1000), files: [] })}`);
     }
+    if (body.ctx?.notice) res.write(body.ctx.notice);
     if (body.tool === 'shodan' && !process.env.SHODAN_API_KEY) res.write('[web] No SHODAN_API_KEY on this server: only `shodan host` works (via free InternetDB). Add a key in Render → Environment for domain/search/count.\n\n');
     const child = spawn(bin, argv, {
         cwd: dir,
