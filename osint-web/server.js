@@ -334,6 +334,10 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '
 const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    if (req.url === '/healthz') {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        return res.end('ok');
+    }
     if (!authorized(req)) {
         res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="osint-web"' });
         return res.end('Authentication required');

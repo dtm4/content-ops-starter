@@ -41,6 +41,8 @@ RUN recon-cli -w web --no-analytics -C "marketplace refresh" >/dev/null 2>&1 || 
       recon-cli -w web --no-analytics -C "marketplace install $m" >/dev/null 2>&1 || true; \
     done
 
+# The entrypoint starts as root only to chown a mounted disk, then drops to osint.
+USER root
 EXPOSE 8080
-HEALTHCHECK --interval=60s --timeout=5s CMD curl -fsS -u "$OSINT_USER:$OSINT_PASS" http://127.0.0.1:8080/api/status >/dev/null || exit 1
+HEALTHCHECK --interval=60s --timeout=5s CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null || exit 1
 ENTRYPOINT ["./entrypoint.sh"]
