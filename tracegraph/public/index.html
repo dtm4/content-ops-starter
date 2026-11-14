@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tracegraph</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="toolbar">
+    <div class="brand">Trace<span>graph</span></div>
+    <form id="add-form" class="group" autocomplete="off">
+      <select id="add-type" aria-label="Entity type"></select>
+      <input id="add-value" placeholder="example.com, 8.8.8.8, user@example.com…" aria-label="Entity value" />
+      <button type="submit" class="primary">Add entity</button>
+    </form>
+    <div class="group">
+      <select id="layout" aria-label="Layout">
+        <option value="cose">Organic (force)</option>
+        <option value="breadthfirst">Hierarchical</option>
+        <option value="concentric">Centrality</option>
+        <option value="circle">Circular</option>
+        <option value="grid">Grid</option>
+      </select>
+      <button id="run-layout">Apply layout</button>
+      <button id="fit" title="Fit graph to view">Fit</button>
+    </div>
+    <div class="group">
+      <input id="search" type="search" placeholder="Find in graph…" aria-label="Find in graph" />
+    </div>
+    <div class="group right">
+      <button id="delete-selected" title="Delete selected (Del)">Delete selected</button>
+      <button id="clear" class="danger">Clear graph</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="panel left">
+      <section>
+        <h2>Entity filter</h2>
+        <ul id="type-filter" class="type-list"></ul>
+        <div class="filter-actions">
+          <button id="filter-all" class="link">Show all</button>
+          <button id="filter-none" class="link">Hide all</button>
+        </div>
+      </section>
+      <section>
+        <h2>View</h2>
+        <label class="check"><input type="checkbox" id="edge-labels" checked /> Edge labels</label>
+        <label class="check"><input type="checkbox" id="auto-layout" /> Re-layout after transforms</label>
+        <label class="check"><input type="checkbox" id="hide-leaves" /> Hide single-link leaves</label>
+      </section>
+      <section class="grow">
+        <h2>Transform log <button id="clear-log" class="link">clear</button></h2>
+        <ol id="log" class="log"></ol>
+      </section>
+    </aside>
+
+    <div class="canvas-wrap">
+      <div id="cy"></div>
+      <div id="empty" class="empty">
+        <h1>Start an investigation</h1>
+        <p>Add a seed entity, then right-click it to run transforms and pivot to related infrastructure.</p>
+        <div class="examples">
+          <button data-type="domain" data-value="example.com">example.com</button>
+          <button data-type="ip" data-value="1.1.1.1">1.1.1.1</button>
+          <button data-type="asn" data-value="AS13335">AS13335</button>
+        </div>
+        <p class="hint">Only investigate assets you own or are authorized to assess.</p>
+      </div>
+      <div id="status" class="status"></div>
+    </div>
+
+    <aside class="panel right">
+      <div id="details"><p class="muted">Select an entity to see its properties.<br />Right-click an entity for transforms.</p></div>
+    </aside>
+  </main>
+
+  <div id="menu" class="menu" hidden></div>
+  <script src="/vendor/cytoscape.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
