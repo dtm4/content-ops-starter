@@ -9,14 +9,18 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      ca-certificates curl tar whois dnsutils nodejs python3-pip \
+      ca-certificates curl tar whois dnsutils nodejs python3-pip python3-venv \
       theharvester spiderfoot sherlock recon-ng \
  && (apt-get install -y --no-install-recommends python3-shodan || true) \
  && (apt-get install -y --no-install-recommends phoneinfoga || true) \
  && rm -rf /var/lib/apt/lists/*
 
-# Shodan CLI: fall back to pip if Kali has no package (it still needs pkg_resources).
-RUN command -v shodan || pip3 install --no-cache-dir shodan "setuptools<81"
+# Shodan CLI in its own venv: it still imports pkg_resources, which current
+# setuptools (and Kali's python3-shodan) no longer provide.
+RUN python3 -m venv /opt/shodan \
+ && /opt/shodan/bin/pip install --no-cache-dir shodan "setuptools<81" \
+ && ln -sf /opt/shodan/bin/shodan /usr/local/bin/shodan \
+ && /usr/local/bin/shodan -h >/dev/null
 
 # PhoneInfoga: fall back to the upstream release binary.
 RUN command -v phoneinfoga || { \

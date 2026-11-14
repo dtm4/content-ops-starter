@@ -105,7 +105,10 @@ function buildCommand(tool, line, ctx) {
         }
         case 'spiderfoot': {
             if (!['spiderfoot', 'sf.py', 'sf'].includes(b)) throw new Reject('this terminal runs: spiderfoot …');
-            const a = checkFlags(args, { '-s': 'target', '-u': 'word', '-m': 'list', '-t': 'list', '-o': 'word', '-x': true, '-q': true, '-n': true, '-r': true, '-S': 'int', '-H': true, '-M': true, '-T': true, '-F': 'list', '-f': true, '-h': true, '--help': true });
+            const a = checkFlags(args, { '-s': 'target', '-u': 'word', '-m': 'list', '-t': 'list', '-o': 'word', '-x': true, '-q': true, '-n': true, '-r': true, '-S': 'int', '-H': true, '-M': true, '-T': true, '-F': 'list', '-f': true, '-max-threads': 'int', '-h': true, '--help': true });
+            // SpiderFoot runs up to ~150 modules at once by default, which exhausts a
+            // small instance. Cap concurrency unless the user sets it explicitly.
+            if (!a.includes('-max-threads')) a.push('-max-threads', process.env.SPIDERFOOT_THREADS || '3');
             const u = a[a.indexOf('-u') + 1];
             if (a.includes('-u') && !['all', 'footprint', 'investigate', 'passive'].includes(u)) throw new Reject('-u must be all, footprint, investigate or passive');
             const o = a[a.indexOf('-o') + 1];
@@ -134,7 +137,10 @@ function buildCommand(tool, line, ctx) {
                 '-h': () => []
             };
             if (!sub || !subs[sub]) throw new Reject(`allowed: shodan ${Object.keys(subs).filter((x) => !x.startsWith('-')).join(' | ')}`);
-            return ['shodan', [sub, ...subs[sub]()], 180e3];
+            const checked = subs[sub]();
+            // Without an API key the CLI refuses everything; answer `host` from Shodan's free InternetDB instead.
+            if (!process.env.SHODAN_API_KEY && sub === 'host') return ['@internetdb', checked.filter((x) => RE.ip.test(x)), 30e3];
+            return ['shodan', [sub, ...checked], 180e3];
         }
         case 'phoneinfoga': {
             if (b !== 'phoneinfoga') throw new Reject('this terminal runs: phoneinfoga …');
@@ -190,6 +196,7 @@ function buildCommand(tool, line, ctx) {
 // ---------------------------------------------------------------- jobs
 
 let running = 0;
+let sfRunning = false; // one SpiderFoot scan at a time: it is the memory-heavy one
 const ANSI = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[()][0-9A-B]|\r(?!\n)/g;
 
 async function runJob(req, res, body) {
@@ -201,6 +208,9 @@ async function runJob(req, res, body) {
         throw e;
     }
     if (running >= MAX_JOBS) return json(res, 429, { error: `server busy: ${running} jobs running, try again shortly` });
+    const isSf = body.tool === 'spiderfoot' && argv.includes('-s');
+    if (isSf && sfRunning) return json(res, 429, { error: 'a SpiderFoot scan is already running; wait for it to finish or stop it' });
+    if (isSf) sfRunning = true;
 
     const id = crypto.randomBytes(8).toString('hex');
     const dir = path.join(JOBS_DIR, id);
@@ -209,6 +219,16 @@ async function runJob(req, res, body) {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', 'X-Job': id });
 
     const started = Date.now();
+    if (bin === '@internetdb') {
+        try {
+            await internetdbHost(argv[0], (s) => res.write(s));
+        } catch (e) {
+            res.write(`Error: ${e.message}\n`);
+        }
+        running--;
+        return res.end(`\n\x1e${JSON.stringify({ job: id, code: 0, seconds: Math.round((Date.now() - started) / 1000), files: [] })}`);
+    }
+    if (body.tool === 'shodan' && !process.env.SHODAN_API_KEY) res.write('[web] No SHODAN_API_KEY on this server: only `shodan host` works (via free InternetDB). Add a key in Render → Environment for domain/search/count.\n\n');
     const child = spawn(bin, argv, {
         cwd: dir,
         env: { ...process.env, PYTHONWARNINGS: 'ignore', NO_COLOR: '1', TERM: 'dumb', PYTHONUNBUFFERED: '1', COLUMNS: '120', HOME: process.env.HOME || dir },
@@ -229,6 +249,7 @@ async function runJob(req, res, body) {
     child.on('close', async (code) => {
         clearTimeout(timer);
         running--;
+        if (isSf) sfRunning = false;
         let files = [];
         try {
             files = await listFiles(dir);
@@ -255,6 +276,24 @@ setInterval(async () => {
         if (st && Date.now() - st.mtimeMs > 2 * 3600e3) fsp.rm(p, { recursive: true, force: true });
     }
 }, 600e3).unref();
+
+/** `shodan host` output, built from Shodan InternetDB (free, no key). */
+async function internetdbHost(ip, write) {
+    const r = await fetch(`https://internetdb.shodan.io/${ip}`, { signal: AbortSignal.timeout(15000) });
+    if (r.status === 404) return write(`${ip}\nNo information available for that IP.\n`);
+    if (!r.ok) throw new Error(`InternetDB HTTP ${r.status}`);
+    const d = await r.json();
+    const pad = (s) => (s + ':').padEnd(25);
+    write(`${ip}\n`);
+    if (d.hostnames.length) write(`${pad('Hostnames')}${d.hostnames.join(';')}\n`);
+    write(`${pad('Number of open ports')}${d.ports.length}\n`);
+    if (d.tags.length) write(`${pad('Tags')}${d.tags.join(', ')}\n`);
+    if (d.vulns.length) write(`${pad('Vulnerabilities')}${d.vulns.join('  ')}\n`);
+    write('\nPorts:\n');
+    d.ports.forEach((p) => write(`     ${p}/tcp\n`));
+    if (d.cpes.length) write(`\nSoftware (CPE):\n${d.cpes.map((c) => `     ${c}\n`).join('')}`);
+    write('\nSource: Shodan InternetDB (no API key). Add SHODAN_API_KEY for banners, org, location and history.\n');
+}
 
 // ---------------------------------------------------------------- Maltego-style transforms
 // Real lookups run on this server: DNS, whois, crt.sh, Shodan InternetDB.
