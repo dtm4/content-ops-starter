@@ -232,18 +232,28 @@ async function runJob(req, res, body) {
     const child = spawn(bin, argv, {
         cwd: dir,
         env: { ...process.env, PYTHONWARNINGS: 'ignore', NO_COLOR: '1', TERM: 'dumb', PYTHONUNBUFFERED: '1', COLUMNS: '120', HOME: process.env.HOME || dir },
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // Own process group: SpiderFoot's CLI SIGKILLs its whole group when a scan
+        // ends, which would otherwise take this server down with it.
+        detached: true
     });
+    const killTree = (sig) => {
+        try {
+            process.kill(-child.pid, sig);
+        } catch {
+            child.kill(sig);
+        }
+    };
     const write = (chunk) => res.write(chunk.toString('utf8').replace(ANSI, ''));
     child.stdout.on('data', write);
     child.stderr.on('data', write);
     const timer = setTimeout(() => {
         res.write(`\n[web] timed out after ${timeout / 1000}s, stopping\n`);
-        child.kill('SIGTERM');
-        setTimeout(() => child.kill('SIGKILL'), 5000);
+        killTree('SIGTERM');
+        setTimeout(() => killTree('SIGKILL'), 5000);
     }, timeout);
     req.on('close', () => {
-        if (child.exitCode === null) child.kill('SIGTERM');
+        if (child.exitCode === null && child.signalCode === null) killTree('SIGTERM');
     });
     child.on('error', (e) => res.write(`\n[web] could not start ${bin}: ${e.code === 'ENOENT' ? 'not installed on this server' : e.message}\n`));
     child.on('close', async (code) => {
