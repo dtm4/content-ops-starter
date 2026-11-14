@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>OSINT Field Kit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+/* One phone-width slide per tool on a dark terminal desk (single dark theme by design). */
+:root {
+  --bg: #090c10; --card: #0d1117; --panel: #11161d; --line: #1e2732;
+  --text: #e6edf3; --muted: #7d8a97; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+  --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--mono); }
+body { padding-block: 18px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+[hidden] { display: none !important; }
+button { font: inherit; }
+.top, .stage, .foot, .legal { max-width: 780px; margin-inline: auto; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.brand { color: var(--muted); font-weight: 700; }
+.brand b { color: var(--ok); font-weight: 700; }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.tab { font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--line); background: none; color: var(--muted); cursor: pointer; }
+.tab[aria-current="true"] { background: var(--c); border-color: var(--c); color: var(--bg); }
+.tab:hover { border-color: var(--c); }
+.slide { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 26px 22px 24px; display: flex; flex-direction: column; gap: 22px; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+h2 { margin: 0; color: var(--c); font-size: clamp(34px, 8vw, 52px); font-weight: 800; line-height: 1.05; letter-spacing: -1px; word-break: break-word; }
+.sub { margin: 6px 0 0; color: #a9b4bf; font-size: clamp(14px, 3.4vw, 18px); }
+.count { color: var(--c); font-weight: 800; font-size: clamp(16px, 4vw, 22px); white-space: nowrap; }
+.term { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; min-width: 0; }
+.bar { display: flex; align-items: center; gap: 7px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.bar i { width: 11px; height: 11px; border-radius: 50%; }
+.bar span { flex: 1; text-align: center; margin-right: 46px; }
+form.cmd { display: flex; align-items: center; gap: 10px; padding: 16px 16px 6px; }
+.prompt { color: var(--c); font-weight: 800; white-space: nowrap; }
+.cmd input { flex: 1; min-width: 0; background: none; border: 0; border-bottom: 1px dashed transparent; color: var(--text); font: 700 16px var(--mono); padding: 4px 0; outline: none; }
+.cmd input:focus { border-bottom-color: var(--c); }
+.cmd input::placeholder { color: #3a4450; }
+.run { flex: none; width: 40px; height: 34px; border-radius: 8px; border: 1px solid var(--c); background: none; color: var(--c); font-size: 17px; font-weight: 700; cursor: pointer; }
+.run:hover { background: var(--c); color: var(--bg); }
+.run.stop { border-color: var(--bad); color: var(--bad); }
+.log { padding: 4px 16px 14px; max-height: 460px; overflow: auto; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.comment { color: #56616d; margin: 14px 0 6px; font-size: 14px; white-space: normal; }
+.echo { color: var(--text); font-weight: 700; margin-top: 8px; display: block; }
+.muted { color: var(--muted); } .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+.acc { color: var(--c); font-weight: 700; }
+.out { color: #c9d1d9; }
+.log a { color: #79c0ff; }
+.tfoot { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--line); }
+.chip { font-size: 11.5px; background: none; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; cursor: pointer; text-decoration: none; }
+.chip:hover { color: var(--text); border-color: var(--c); }
+h3 { margin: 0 0 10px; color: var(--c); font-size: 15px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; }
+.usage { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; align-items: baseline; }
+.flag { font-weight: 800; color: var(--c); background: none; border: 0; border-left: 3px solid var(--c); padding: 0 0 0 10px; cursor: pointer; text-align: left; }
+.flag:hover { text-decoration: underline; }
+.usage span { color: #a9b4bf; }
+.overview { margin: 0; font-size: 15px; line-height: 1.7; color: #dce3ea; max-width: 68ch; }
+.graphWrap { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.gbar { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 11.5px; }
+.gbar .hint { margin-left: auto; color: var(--muted); }
+svg.graph { display: block; width: 100%; height: auto; touch-action: none; font-family: var(--mono); }
+.gempty { border: 1px dashed var(--line); border-radius: 12px; padding: 28px 18px; color: var(--muted); text-align: center; }
+.menu { position: absolute; z-index: 5; width: 230px; background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 6px; box-shadow: 0 12px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; }
+.menu .mh { font-size: 11px; font-weight: 700; padding: 6px 8px 8px; border-bottom: 1px solid #30363d; margin-bottom: 4px; word-break: break-all; }
+.menu button { text-align: left; color: var(--text); background: none; border: 0; border-radius: 6px; padding: 7px 8px; cursor: pointer; font-size: 12.5px; }
+.menu button:hover, .menu button:focus-visible { background: #21262d; outline: none; }
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 16px; }
+.arrow { font-size: 12.5px; color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; cursor: pointer; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dots { display: flex; gap: 7px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; border: 0; padding: 0; background: #2d3640; cursor: pointer; }
+.dot[aria-current="true"] { width: 20px; border-radius: 4px; background: var(--c); }
+.legal { margin-top: 18px; color: #56616d; font-size: 11.5px; text-align: center; }
+button:focus-visible { outline: 2px solid var(--c, #58a6ff); outline-offset: 2px; }
+@media (max-width: 480px) {
+  .slide { padding: 20px 14px; border-radius: 14px; }
+  .usage { grid-template-columns: 1fr; gap: 0; } .usage span { padding: 0 0 6px 13px; }
+  .log, form.cmd { padding-inline: 12px; } .log { font-size: 12px; }
+}
+</style>
+</head>
+<body>
+<div class="top">
+  <span class="brand">~/osint field kit · <b id="health">checking server…</b></span>
+  <nav class="tabs" id="tabs" aria-label="Tools"></nav>
+</div>
+<main class="stage" id="stage"></main>
+<div class="foot">
+  <button class="arrow" id="prev"></button>
+  <div class="dots" id="dots"></div>
+  <button class="arrow" id="next"></button>
+</div>
+<p class="legal">The real tools run on this server. Use them only on targets you own or are authorised to assess, and follow privacy law (GDPR/CCPA) and each source's terms.</p>
+
+<script>
+'use strict';
+const TOOLS = [
+  { id: 'theharvester', n: '01', name: 'theHarvester', color: '#58a6ff', sub: 'Email & subdomain OSINT harvester',
+    example: 'theHarvester -d example.com -b all', comment: 'email & subdomain osint harvester',
+    usage: [['-d', 'Target domain or company'], ['-b', 'Data source (or all)'], ['-l', 'Limit results (default 500)'], ['-f', 'Save to file (XML + JSON)']],
+    overview: 'theHarvester is where most engagements begin. Point it at a domain and it pulls emails, subdomains, hosts and IPs from 50+ OSINT sources, mapping the external attack surface without sending a packet to the target.' },
+  { id: 'spiderfoot', n: '02', name: 'SpiderFoot', color: '#b48cff', sub: 'OSINT automation + correlation engine',
+    example: 'spiderfoot -s example.com -u passive -o tab -q', comment: 'osint automation + correlation engine · footprint/investigate scans can take several minutes',
+    usage: [['-s', 'Target (domain/IP/email)'], ['-u', 'Use case (footprint/passive)'], ['-m', 'Modules to enable'], ['-o', 'Output (tab/csv/json)']],
+    overview: 'Point SpiderFoot at a domain, IP or email and it fans out across 200+ modules, then a built-in correlation engine stitches the hits into one map of names, IPs, emails, ports and leaks.' },
+  { id: 'maltego', n: '03', name: 'Maltego', color: '#f47fbf', sub: 'OSINT link-analysis graphs', graph: true, prompt: 'entity ›',
+    example: 'example.com', comment: 'GUI: drop in an entity → right-click / tap it → run Transforms',
+    usage: [['DNS from Domain', 'resolve live hosts'], ['To Email (Whois)', 'registrant emails'], ['To Netblock', 'owned IP ranges'], ['•', 'Pivot the graph visually']],
+    overview: 'Maltego turns scattered data into a picture. Drop in a domain, email or name and run transforms to pull related entities, then watch the links between people, infrastructure and accounts render as a graph you can pivot.' },
+  { id: 'sherlock', n: '04', name: 'Sherlock', color: '#e8b84a', sub: 'Username enumeration across 400+ sites',
+    example: 'sherlock johndoe', comment: 'username enumeration across 400+ sites',
+    usage: [['--print-all', 'show misses too (default: only found)'], ['--site', 'limit to one site'], ['--timeout', 'per-request timeout'], ['--csv', 'export results']],
+    overview: "Sherlock hunts a username across 400+ networks at once. Hand it a handle and it checks GitHub, Reddit, social and gaming sites in parallel, surfacing candidate profiles to verify across one person's online presence." },
+  { id: 'shodan', n: '05', name: 'Shodan', color: '#3fb950', sub: 'Search engine for exposed devices',
+    example: 'shodan host 198.51.100.23', comment: 'search engine for exposed devices',
+    usage: [['host', 'all info for an IP'], ['domain', 'subdomains & DNS'], ['search', 'query the database'], ['count', 'number of matches']],
+    overview: "Shodan scans the whole internet so you don't have to. Query an IP, domain or service and it returns open ports, banners and software versions: the public-facing attack surface, searchable like Google." },
+  { id: 'phoneinfoga', n: '06', name: 'phoneinfoga', color: '#f0883e', sub: 'Phone number OSINT (footprints)',
+    example: 'phoneinfoga scan -n +12025550143', comment: 'phone number osint (footprints)',
+    usage: [['-n', 'number to scan (E164)'], ['-D', 'skip a scanner'], ['scanners', 'list available scanners'], ['serve', 'launch web UI (this page)']],
+    overview: 'phoneinfoga profiles a phone number from its digits. Feed it an E164 number and it parses country and format, then builds ready-to-run search-engine footprints to surface it across social and people-finder sites.' },
+  { id: 'reconng', n: '07', name: 'recon-ng', color: '#58a6ff', sub: 'Modular recon framework',
+    example: 'marketplace install recon/domains-hosts/hackertarget', comment: 'modular recon framework · install → modules load → options set SOURCE → run → show hosts',
+    usage: [['marketplace search', 'find modules'], ['modules load', 'load a module'], ['options set', 'configure input'], ['run', 'execute the module']],
+    overview: 'recon-ng runs recon like Metasploit. Load a module from the marketplace, point it at a domain and run it, and results flow into a shared database that later modules build on, chaining hosts, contacts and ports into one workspace.' }
+];
+
+const $ = (s, el = document) => el.querySelector(s);
+const h = (tag, attrs = {}, ...kids) => {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'style') el.style.cssText = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kids.flat()) if (k != null) el.append(k.nodeType ? k : document.createTextNode(k));
+  return el;
+};
+const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+const URL_RE = /(https?:\/\/[^\s"'<>]+)/g;
+
+// ------------------------------------------------------------ terminal slide
+function buildSlide(t, idx) {
+  const recon = store.get('recon-ctx', { module: null, options: {} });
+  const state = { busy: false, ctrl: null, hist: [], hi: -1 };
+  const log = h('div', { class: 'log', 'aria-live': 'polite' }, h('div', { class: 'comment' }, `# ${t.comment}`));
+  const input = h('input', { id: `cmd-${t.id}`, value: t.example, placeholder: t.example, spellcheck: 'false', autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off', enterkeyhint: 'go' });
+  const promptEl = h('label', { class: 'prompt', for: `cmd-${t.id}` });
+  const runBtn = h('button', { class: 'run', 'aria-label': 'Run command' }, '↵');
+  const tfoot = h('div', { class: 'tfoot', hidden: true });
+
+  const promptText = () => t.id === 'reconng' ? `[recon-ng][web]${recon.module ? `[${recon.module.split('/').pop()}]` : ''} >` : (t.prompt || '$');
+  const setPrompt = () => { promptEl.textContent = promptText(); };
+  setPrompt();
+  const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  const print = (text, cls = 'out') => {
+    const stick = atBottom();
+    const span = h('span', { class: cls });
+    String(text).split(URL_RE).forEach((part, i) => span.append(i % 2 ? h('a', { href: part, target: '_blank', rel: 'noopener noreferrer nofollow' }, part) : part));
+    log.append(span);
+    if (stick) log.scrollTop = log.scrollHeight;
+    return span;
+  };
+  const println = (text, cls) => print(text + '\n', cls);
+
+  async function stream(cmd) {
+    state.ctrl = new AbortController();
+    const res = await fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool: t.id, cmd, ctx: recon }), signal: state.ctrl.signal });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); println(`[!] ${e.error || res.status}`, 'bad'); return; }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let tail = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      tail += dec.decode(value, { stream: true });
+      const cut = tail.indexOf('\x1e');
+      const safe = cut >= 0 ? tail.slice(0, cut) : tail.slice(0, Math.max(0, tail.length - 1));
+      if (safe) { print(safe); tail = tail.slice(safe.length); }
+    }
+    const sep = tail.indexOf('\x1e');
+    if (sep < 0) { if (tail) print(tail); return; }
+    if (sep > 0) print(tail.slice(0, sep));
+    const meta = JSON.parse(tail.slice(sep + 1));
+    println(`\n[exit ${meta.code ?? '?'} · ${meta.seconds}s${meta.files.length ? ` · ${meta.files.length} file(s)` : ''}]`, meta.code === 0 ? 'muted' : 'warn');
+    tfoot.replaceChildren(...meta.files.map((f) => h('a', { class: 'chip', href: `/api/files/${meta.job}/${encodeURIComponent(f)}`, download: f }, `⤓ ${f}`)), h('button', { class: 'chip', onclick: () => clearLog() }, 'clear'));
+    tfoot.hidden = false;
+  }
+
+  function clearLog() { log.replaceChildren(h('div', { class: 'comment' }, `# ${t.comment}`)); tfoot.hidden = true; }
+
+  // recon-ng console verbs handled in the page (module context); the rest run on the server
+  function reconLocal(line) {
+    const a = line.split(/\s+/);
+    if (a[0] === 'modules' && a[1] === 'load') {
+      if (!/^[a-z0-9_/-]+$/.test(a[2] || '')) { println('[!] usage: modules load <path>', 'bad'); return true; }
+      recon.module = a[2]; recon.options = {}; store.set('recon-ctx', recon); setPrompt();
+      println(`[*] Loaded ${a[2]}. Next: options set SOURCE <value> → run (module must be installed: marketplace install ${a[2]})`, 'muted');
+      return true;
+    }
+    if (a[0] === 'options' && a[1] === 'set') {
+      if (!recon.module) { println('[!] load a module first', 'bad'); return true; }
+      const k = (a[2] || '').toUpperCase(); const v = a.slice(3).join(' ');
+      if (!k || !v) { println('[!] usage: options set NAME value', 'bad'); return true; }
+      recon.options[k] = v; store.set('recon-ctx', recon); println(`${k} => ${v}`); return true;
+    }
+    if (a[0] === 'options' && a[1] === 'unset') { delete recon.options[(a[2] || '').toUpperCase()]; store.set('recon-ctx', recon); println(`${(a[2] || '').toUpperCase()} => (unset)`); return true; }
+    if (a[0] === 'back') { recon.module = null; recon.options = {}; store.set('recon-ctx', recon); setPrompt(); return true; }
+    if (a[0] === 'help') {
+      ['marketplace search [kw]', 'marketplace install <path|all>', 'marketplace refresh', 'modules search [kw]', 'modules load <path>', 'options list | set NAME value | unset NAME', 'info', 'run', 'show <hosts|contacts|domains|ports|vulnerabilities|…>', 'back'].forEach((x) => println(`  ${x}`, 'muted'));
+      return true;
+    }
+    return false;
+  }
+
+  async function run() {
+    if (state.busy) { state.ctrl?.abort(); return; }
+    const line = input.value.trim();
+    if (!line) return;
+    state.hist = [...state.hist.filter((x) => x !== line), line].slice(-50); state.hi = -1;
+    if (line === 'clear') { clearLog(); input.value = ''; return; }
+    println(`${promptText()} ${line}`, 'echo');
+    if (t.graph) { graph.addFromInput(line, println); input.value = ''; return; }
+    if (t.id === 'reconng' && reconLocal(line)) { input.value = ''; return; }
+    state.busy = true; runBtn.textContent = '■'; runBtn.classList.add('stop'); runBtn.setAttribute('aria-label', 'Stop');
+    try { await stream(line); }
+    catch (e) { println(e.name === 'AbortError' ? '\n[stopped]' : `[!] ${e.message}`, e.name === 'AbortError' ? 'warn' : 'bad'); }
+    finally { state.busy = false; runBtn.textContent = '↵'; runBtn.classList.remove('stop'); runBtn.setAttribute('aria-label', 'Run command'); if (t.id === 'reconng') input.value = ''; setPrompt(); }
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp' && state.hist.length) { e.preventDefault(); state.hi = state.hi < 0 ? state.hist.length - 1 : Math.max(0, state.hi - 1); input.value = state.hist[state.hi]; }
+    else if (e.key === 'ArrowDown' && state.hi >= 0) { e.preventDefault(); state.hi = state.hi + 1 >= state.hist.length ? -1 : state.hi + 1; input.value = state.hi < 0 ? '' : state.hist[state.hi]; }
+    else if (e.key === 'l' && e.ctrlKey) { e.preventDefault(); clearLog(); }
+  });
+
+  const insert = (flag) => {
+    if (t.graph || flag === '•') return;
+    if (t.id === 'shodan') input.value = `shodan ${flag} `;
+    else if (t.id === 'reconng') input.value = flag === 'run' ? 'run' : `${flag} `;
+    else if (t.id === 'phoneinfoga' && !flag.startsWith('-')) input.value = `phoneinfoga ${flag}`;
+    else input.value = `${input.value.replace(/\s+$/, '')} ${flag} `;
+    input.focus();
+  };
+
+  const graph = t.graph ? makeGraph(println) : null;
+  const el = h('article', { class: 'slide', style: `--c:${t.color}`, hidden: idx !== 0, 'aria-label': `${t.n} of 07: ${t.name}` },
+    h('header', { class: 'head' }, h('div', {}, h('h2', {}, t.name), h('p', { class: 'sub' }, t.sub)), h('div', { class: 'count' }, `${t.n} / 07`)),
+    h('div', { class: 'term' },
+      h('div', { class: 'bar' }, h('i', { style: 'background:#ff5f57' }), h('i', { style: 'background:#febc2e' }), h('i', { style: 'background:#28c840' }), h('span', {}, `zsh ~ ${t.id === 'reconng' ? 'recon-ng' : t.id}`)),
+      h('form', { class: 'cmd', onsubmit: (e) => { e.preventDefault(); run(); } }, promptEl, input, runBtn),
+      log, tfoot),
+    graph ? graph.el : null,
+    h('section', {}, h('h3', {}, 'Usage'), h('div', { class: 'usage' }, t.usage.flatMap(([f, d]) => [h('button', { type: 'button', class: 'flag', onclick: () => insert(f) }, f), h('span', {}, d)]))),
+    h('section', {}, h('h3', {}, 'Overview'), h('p', { class: 'overview' }, t.overview)));
+  return el;
+}
+
+// ------------------------------------------------------------ Maltego-style graph
+const ENT = {
+  domain: ['Domain', '#58a6ff', 'D'], dns: ['DNS Name', '#b48cff', 'H'], ip: ['IP Address', '#3fb950', 'IP'], mx: ['MX Record', '#f0883e', 'MX'],
+  ns: ['NS Record', '#e8b84a', 'NS'], email: ['Email', '#f47fbf', '@'], netblock: ['Netblock', '#39c5cf', 'NB'], org: ['Organization', '#c9d1d9', 'O'],
+  port: ['Port', '#d29922', 'P'], cve: ['Vulnerability', '#f85149', '!']
+};
+const TF = {
+  domain: [['DNS from Domain', 'dns-from-domain'], ['To IP Address [DNS]', 'to-ip'], ['To MX / NS records', 'to-mx-ns'], ['To Email (Whois)', 'to-email-whois'], ['To Registrar (Whois)', 'to-registrar']],
+  dns: [['To IP Address [DNS]', 'to-ip']], mx: [['To IP Address [DNS]', 'to-ip']], ns: [['To IP Address [DNS]', 'to-ip']],
+  ip: [['To Netblock', 'to-netblock'], ['To Owner (Whois)', 'to-owner'], ['To DNS Name [Reverse]', 'to-reverse'], ['To Ports (Shodan)', 'to-ports'], ['To Vulnerabilities (Shodan)', 'to-vulns']],
+  email: [['To Domain', 'email-to-domain']]
+};
+const NS = 'http://www.w3.org/2000/svg';
+const sv = (tag, attrs = {}, ...kids) => { const el = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); kids.forEach((k) => el.append(k)); return el; };
+
+function makeGraph(println) {
+  const G = { nodes: [], edges: [], sel: null, busy: null };
+  const wrap = h('div', { class: 'gempty' }, 'Type a domain, IP or email in the terminal and press ↵. Then right-click or tap the entity to run transforms.');
+  const holder = h('div', {}, wrap);
+  let menu = null; let drag = null; let vb = [0, 0, 800, 500];
+
+  const detect = (v) => /^(\d{1,3}\.){3}\d{1,3}$/.test(v) ? 'ip' : /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v) ? 'email' : /^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(v) ? (v.split('.').length > 2 ? 'dns' : 'domain') : null;
+  function add(type, value, parent) {
+    const id = `${type}:${value}`;
+    let n = G.nodes.find((x) => x.id === id);
+    const p = parent && G.nodes.find((x) => x.id === parent);
+    if (!n) { const a = Math.random() * 6.28; n = { id, type, value, x: (p?.x ?? 400) + Math.cos(a) * 70, y: (p?.y ?? 250) + Math.sin(a) * 70, vx: 0, vy: 0 }; G.nodes.push(n); }
+    if (p && !G.edges.some(([a, b]) => (a === parent && b === id) || (a === id && b === parent))) G.edges.push([parent, id]);
+    return n;
+  }
+  function layout(iter = 180) {
+    const N = G.nodes; const idx = new Map(N.map((n, i) => [n.id, i]));
+    for (let it = 0; it < iter; it++) {
+      const t = 1 - it / iter;
+      for (let i = 0; i < N.length; i++) for (let j = i + 1; j < N.length; j++) {
+        const a = N[i], b = N[j]; let dx = a.x - b.x, dy = a.y - b.y; const d2 = dx * dx + dy * dy + 0.01;
+        if (d2 > 160000) continue; const f = 5200 / d2, d = Math.sqrt(d2); dx /= d; dy /= d;
+        a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+      }
+      for (const [p, c] of G.edges) {
+        const a = N[idx.get(p)], b = N[idx.get(c)]; if (!a || !b) continue;
+        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, f = (d - 120) * 0.04;
+        a.vx += dx / d * f; a.vy += dy / d * f; b.vx -= dx / d * f; b.vy -= dy / d * f;
+      }
+      for (const n of N) { n.vx += (400 - n.x) * 0.004; n.vy += (250 - n.y) * 0.004; if (!n.pinned) { n.x += Math.max(-12, Math.min(12, n.vx)) * t; n.y += Math.max(-12, Math.min(12, n.vy)) * t; } n.vx *= 0.5; n.vy *= 0.5; }
+    }
+  }
+  async function transform(node, list) {
+    G.busy = node.id; render();
+    for (const [name, key] of list) {
+      println(`[>] ${name} · ${ENT[node.type][0]}: ${node.value}`, 'acc');
+      try {
+        const r = await fetch(`/api/transform?t=${key}&v=${encodeURIComponent(node.value)}`);
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || r.status);
+        const before = G.nodes.length;
+        j.entities.forEach(([type, value]) => add(type, value, node.id));
+        println(`    ${j.entities.length} entities returned (${G.nodes.length - before} new)`, j.entities.length ? 'ok' : 'muted');
+      } catch (e) { println(`    transform failed: ${e.message}`, 'bad'); }
+    }
+    G.busy = null; layout(); render();
+  }
+  function closeMenu() { menu?.remove(); menu = null; }
+  function openMenu(e, n) {
+    e.preventDefault(); e.stopPropagation(); closeMenu(); G.sel = n.id; render();
+    const r = holder.firstChild.getBoundingClientRect();
+    const list = TF[n.type] || [];
+    menu = h('div', { class: 'menu', style: `left:${Math.max(4, Math.min(e.clientX - r.left, r.width - 236))}px;top:${e.clientY - r.top}px`, onclick: (ev) => ev.stopPropagation() },
+      h('div', { class: 'mh', style: `color:${ENT[n.type][1]}` }, `${ENT[n.type][0]}: ${n.value}`),
+      list.length > 1 ? h('button', { onclick: () => { closeMenu(); transform(n, list); } }, '▶ Run all transforms') : null,
+      list.map(([name, key]) => h('button', { onclick: () => { closeMenu(); transform(n, [[name, key]]); } }, name)),
+      list.length ? null : h('div', { class: 'mh', style: 'border:0;color:var(--muted)' }, 'No transforms for this entity'),
+      h('button', { onclick: () => { closeMenu(); G.nodes = G.nodes.filter((x) => x.id !== n.id); G.edges = G.edges.filter((x) => !x.includes(n.id)); G.sel = null; render(); } }, '✕ Delete entity'));
+    holder.firstChild.append(menu);
+  }
+  function exportCsv() {
+    const rows = ['type,value', ...G.nodes.map((n) => `"${ENT[n.type][0]}","${n.value.replace(/"/g, '""')}"`)].join('\n');
+    const a = h('a', { href: URL.createObjectURL(new Blob([rows], { type: 'text/csv' })), download: 'maltego-graph.csv' }); document.body.append(a); a.click(); a.remove();
+  }
+  function render() {
+    if (!G.nodes.length) { holder.replaceChildren(wrap); return; }
+    const xs = G.nodes.map((n) => n.x), ys = G.nodes.map((n) => n.y);
+    let [x0, x1, y0, y1] = [Math.min(...xs) - 70, Math.max(...xs) + 70, Math.min(...ys) - 45, Math.max(...ys) + 50];
+    let w = Math.max(420, x1 - x0), hh = Math.max(262, y1 - y0); if (w / hh > 1.6) hh = w / 1.6; else w = hh * 1.6;
+    if (!drag?.moved) vb = [(x0 + x1) / 2 - w / 2, (y0 + y1) / 2 - hh / 2, w, hh];
+    const linked = new Set(G.sel ? [G.sel, ...G.edges.filter((e) => e.includes(G.sel)).flat()] : []);
+    const svg = sv('svg', { class: 'graph', viewBox: vb.join(' ') });
+    const pt = (e) => { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
+    svg.addEventListener('pointermove', (e) => { if (!drag) return; const p = pt(e); Object.assign(drag.n, { x: p.x, y: p.y, pinned: true }); drag.moved = true; render(); });
+    const end = () => { const moved = drag?.moved; drag = null; if (moved) render(); };
+    svg.addEventListener('pointerup', end); svg.addEventListener('pointerleave', end);
+    for (const [a, b] of G.edges) {
+      const A = G.nodes.find((n) => n.id === a), B = G.nodes.find((n) => n.id === b); if (!A || !B) continue;
+      const on = !G.sel || (linked.has(a) && linked.has(b));
+      svg.append(sv('line', { x1: A.x, y1: A.y, x2: B.x, y2: B.y, stroke: on ? '#4a5a6c' : '#1c242e', 'stroke-width': on ? 1.3 : 0.8 }));
+    }
+    for (const n of G.nodes) {
+      const [, col, glyph] = ENT[n.type]; const label = n.type === 'port' ? n.value.split(':')[1] : n.value;
+      const g = sv('g', { transform: `translate(${n.x},${n.y})`, opacity: G.sel && !linked.has(n.id) ? 0.25 : 1, style: 'cursor:pointer' },
+        sv('circle', { r: n.type === 'domain' ? 17 : 13, fill: '#0d1117', stroke: col, 'stroke-width': G.busy === n.id ? 4 : 2 }),
+        sv('text', { 'text-anchor': 'middle', dy: 4, 'font-size': glyph.length > 1 ? 9 : 12, fill: col, 'font-weight': 700 }, glyph),
+        sv('text', { 'text-anchor': 'middle', y: n.type === 'domain' ? 32 : 27, 'font-size': 10.5, fill: '#c9d1d9' }, label.length > 30 ? label.slice(0, 28) + '…' : label));
+      g.addEventListener('pointerdown', (e) => { e.stopPropagation(); drag = { n, moved: false }; });
+      g.addEventListener('click', (e) => { if (!drag?.moved) openMenu(e, n); });
+      g.addEventListener('contextmenu', (e) => openMenu(e, n));
+      svg.append(g);
+    }
+    const counts = G.nodes.reduce((m, n) => ((m[n.type] = (m[n.type] || 0) + 1), m), {});
+    const box = h('div', { class: 'graphWrap', onclick: closeMenu },
+      h('div', { class: 'gbar' }, Object.entries(counts).map(([t, c]) => h('span', { style: `color:${ENT[t][1]}` }, `● ${ENT[t][0]} ${c}`)),
+        h('button', { class: 'chip', onclick: exportCsv }, '⤓ csv'), h('span', { class: 'hint' }, G.busy ? 'running transform…' : 'tap / right-click an entity · drag to move')), svg);
+    holder.replaceChildren(box);
+  }
+  return {
+    el: holder,
+    addFromInput(line, print) {
+      const v = line.replace(/^entity\s+/i, '').trim().toLowerCase();
+      if (v === 'new') { G.nodes = []; G.edges = []; G.sel = null; render(); return; }
+      const type = detect(v);
+      if (!type) { print(`[!] "${v}" is not a domain, IP or email`, 'bad'); return; }
+      const n = add(type, v); G.sel = n.id; layout(); render();
+      print(`[+] ${ENT[type][0]} entity added: ${v} · right-click / tap it to run transforms`, 'ok');
+    }
+  };
+}
+
+// ------------------------------------------------------------ carousel
+const stage = $('#stage');
+const slides = TOOLS.map((t, i) => { const el = buildSlide(t, i); stage.append(el); return el; });
+let cur = 0;
+function go(i) {
+  cur = (i + TOOLS.length) % TOOLS.length;
+  slides.forEach((s, k) => (s.hidden = k !== cur));
+  const t = TOOLS[cur];
+  document.body.style.setProperty('--c', t.color);
+  $('#tabs').replaceChildren(...TOOLS.map((x, k) => h('button', { class: 'tab', style: `--c:${x.color}`, 'aria-current': String(k === cur), onclick: () => go(k) }, x.n)));
+  $('#dots').replaceChildren(...TOOLS.map((x, k) => h('button', { class: 'dot', 'aria-label': x.name, 'aria-current': String(k === cur), onclick: () => go(k) })));
+  $('#prev').textContent = `‹ ${TOOLS[(cur + 6) % 7].name}`;
+  $('#next').textContent = `${TOOLS[(cur + 1) % 7].name} ›`;
+  history.replaceState(null, '', `#${t.n}`);
+}
+$('#prev').onclick = () => go(cur - 1);
+$('#next').onclick = () => go(cur + 1);
+document.addEventListener('keydown', (e) => { if (e.target.closest('input')) return; if (e.key === 'ArrowRight') go(cur + 1); if (e.key === 'ArrowLeft') go(cur - 1); });
+let touch = null;
+stage.addEventListener('touchstart', (e) => { if (e.target.closest('input, svg, .log')) return; touch = [e.touches[0].clientX, e.touches[0].clientY]; }, { passive: true });
+stage.addEventListener('touchend', (e) => { if (!touch) return; const dx = e.changedTouches[0].clientX - touch[0], dy = e.changedTouches[0].clientY - touch[1]; touch = null; if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) go(cur + (dx < 0 ? 1 : -1)); });
+const fromHash = () => { const k = TOOLS.findIndex((t) => `#${t.n}` === location.hash); go(k >= 0 ? k : 0); };
+window.addEventListener('hashchange', fromHash);
+fromHash();
+
+fetch('/api/status').then((r) => r.json()).then((s) => {
+  const missing = Object.entries(s.tools).filter(([, ok]) => !ok).map(([k]) => k);
+  const el = $('#health');
+  el.textContent = missing.length ? `missing on server: ${missing.join(', ')}` : `server ready · ${Object.keys(s.tools).length} tools`;
+  el.style.color = missing.length ? 'var(--warn)' : 'var(--ok)';
+  if (!s.shodanKey) el.textContent += ' · no Shodan key';
+}).catch(() => { $('#health').textContent = 'server unreachable'; $('#health').style.color = 'var(--bad)'; });
+</script>
+</body>
+</html>
