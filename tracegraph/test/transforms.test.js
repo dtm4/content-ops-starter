@@ -5,6 +5,7 @@ import { isPublicIp, safeFetch } from '../src/lib/safe-fetch.js';
 import { reverseName, parseTxt, parseSpf, expandIPv6 } from '../src/transforms/dns.js';
 import { extractFromHtml } from '../src/transforms/web.js';
 import { contactsToEntities } from '../src/transforms/rdap.js';
+import { parseHostList } from '../src/transforms/public.js';
 import { getTransform, describeTransforms } from '../src/transforms/registry.js';
 
 // ---- fetch mock: maps URL substrings to JSON bodies -----------------------------
@@ -15,6 +16,7 @@ beforeEach(() => {
   globalThis.fetch = async (url) => {
     const hit = Object.entries(routes).find(([k]) => String(url).includes(k));
     if (!hit) return new Response('not found', { status: 404 });
+    if (typeof hit[1] === 'string') return new Response(hit[1], { status: 200 });
     return new Response(JSON.stringify(hit[1]), { status: 200, headers: { 'content-type': 'application/json' } });
   };
 });
@@ -145,4 +147,42 @@ test('shodan.host maps services, hostnames and CVEs', async () => {
   const r = await run('shodan.host', '203.0.113.5', 'ip');
   assert.deepEqual(r.entities.map((e) => `${e.type}:${e.value}`), ['service:203.0.113.5:443/tcp', 'domain:host.acme.com', 'note:CVE-2021-44228', 'asn:AS64500']);
   delete process.env.SHODAN_API_KEY;
+});
+
+test('internetdb.host maps ports, hostnames and CVEs; 404 means no data', async () => {
+  routes['internetdb.shodan.io'] = { cpes: ['cpe:/a:nginx:nginx'], hostnames: ['one.one.one.one'], ip: '1.1.1.1', ports: [53, 443], tags: ['cdn'], vulns: ['CVE-2020-0001'] };
+  const r = await run('internetdb.host', '1.1.1.1', 'ip');
+  assert.deepEqual(r.entities.map((e) => `${e.type}:${e.value}`), ['service:1.1.1.1:53/tcp', 'service:1.1.1.1:443/tcp', 'domain:one.one.one.one', 'note:CVE-2020-0001']);
+  assert.equal(r.sourceProps.tags, 'cdn');
+  routes = {};
+  assert.deepEqual((await run('internetdb.host', '203.0.113.9', 'ip')).entities, []);
+});
+
+test('thc transforms parse text listings', async () => {
+  assert.deepEqual(parseHostList(';; comment example.net\nwww.example.com\napi.example.com.  extra\n# x\nnot_a_host\n'), ['www.example.com', 'api.example.com']);
+  routes['ip.thc.org/sb/'] = ';; subdomains\nwww.example.com\nexample.com\nother.net\nmail.example.com\n';
+  const s = await run('thc.subdomains', 'example.com', 'domain');
+  assert.deepEqual(s.entities.map((e) => e.value), ['www.example.com', 'mail.example.com']);
+  routes = { 'ip.thc.org/': '', 'hackertarget.com/reverseiplookup': 'a.example\nb.example\n' };
+  const r = await run('thc.rdns', '203.0.113.9', 'ip');
+  assert.deepEqual(r.entities.map((e) => e.value), ['a.example', 'b.example']);
+  routes = { 'ip.thc.org/': '', 'hackertarget.com/reverseiplookup': 'API count exceeded - Increase Quota with Membership' };
+  await assert.rejects(run('thc.rdns', '203.0.113.9', 'ip'), /API count exceeded/);
+});
+
+test('otx.domain returns historical IPs and report count', async () => {
+  routes['/passive_dns'] = { passive_dns: [{ address: '93.184.216.34', hostname: 'example.com', first: '2020-01-01', last: '2024-01-01' }, { address: '93.184.216.34', hostname: 'example.com' }, { address: 'NXDOMAIN', hostname: 'example.com' }, { address: '10.9.9.9', hostname: 'sub.example.com' }] };
+  routes['/general'] = { pulse_info: { count: 7 } };
+  const r = await run('otx.domain', 'example.com', 'domain');
+  assert.deepEqual(r.entities.map((e) => e.value), ['93.184.216.34']);
+  assert.equal(r.sourceProps.otx_threat_reports, 7);
+});
+
+test('mail.verify reports MX and disposable status', async () => {
+  routes['type=MX'] = { Answer: [{ type: 15, data: '10 mx.example.com.' }] };
+  routes['open.kickbox.com'] = { disposable: true };
+  const r = await run('mail.verify', 'a@example.com', 'email');
+  assert.deepEqual(r.entities.map((e) => e.value), ['mx.example.com']);
+  assert.equal(r.sourceProps.domain_accepts_mail, true);
+  assert.equal(r.sourceProps.disposable_address, true);
 });

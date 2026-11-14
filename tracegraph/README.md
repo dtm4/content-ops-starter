@@ -40,6 +40,12 @@ Requires Node 20+.
 | Web | domain, url | Emails, social profiles, linked domains, phones, analytics/ad tracking IDs, final redirect URL | Fetches the site |
 | Convert | email, url | To domain | local |
 | Gravatar | email | Name, linked accounts | Gravatar |
+| InternetDB | ip | Open ports, hostnames, possible CVEs, software (free Shodan data, can be months old) | internetdb.shodan.io |
+| THC | domain | Subdomains | ip.thc.org |
+| THC | ip | Domains hosted on the IP (falls back to HackerTarget, about 50 calls/day) | ip.thc.org, hackertarget.com |
+| OTX | domain, ip | Passive DNS and threat-report count (may refuse keyless requests) | AlienVault OTX |
+| Mail | email | Whether the domain accepts mail (MX) and is a disposable provider | DoH, open.kickbox.com |
+| Web | domain | Emails and phones from contact/about/team pages (up to 7 pages) | Fetches the site |
 | Shodan* | ip | Open ports and services, hostnames, CVEs | `SHODAN_API_KEY` |
 | Shodan* | domain | Subdomains and DNS | `SHODAN_API_KEY` |
 | VirusTotal* | domain, ip | Reputation and passive DNS | `VT_API_KEY` |

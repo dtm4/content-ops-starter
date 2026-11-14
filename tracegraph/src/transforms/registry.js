@@ -2,10 +2,11 @@ import { rdapTransforms } from './rdap.js';
 import { dnsTransforms } from './dns.js';
 import { webTransforms } from './web.js';
 import { apiTransforms } from './apis.js';
+import { publicTransforms } from './public.js';
 
 // Infrastructure transforms that depend on the network come from separate modules
 // so each can be unit tested with a mocked fetch.
-export const transforms = [...dnsTransforms, ...rdapTransforms, ...webTransforms, ...apiTransforms];
+export const transforms = [...dnsTransforms, ...rdapTransforms, ...webTransforms, ...publicTransforms, ...apiTransforms];
 
 export function getTransform(id) {
   return transforms.find((t) => t.id === id);
