@@ -1,0 +1,18 @@
+{
+  "name": "tracegraph",
+  "version": "1.0.0",
+  "description": "Link-analysis graph workbench for OSINT and recon: pivot from domains, IPs, emails and URLs to related entities.",
+  "type": "module",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "cytoscape": "^3.35.0",
+    "express": "^4.22.3"
+  }
+}

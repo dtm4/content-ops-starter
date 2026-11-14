@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: tracegraph
+    runtime: node
+    rootDir: tracegraph
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: APP_PASSWORD
+        sync: false
+      - key: SHODAN_API_KEY
+        sync: false
+      - key: VT_API_KEY
+        sync: false
+      - key: HUNTER_API_KEY
+        sync: false
