@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# osint - one launcher for the open-source OSINT toolchain.
+#
+#   ./osint install [all|theharvester|spiderfoot|sherlock|shodan|phoneinfoga|reconng]
+#   ./osint doctor
+#   ./osint <tool> [args...]          e.g. ./osint sherlock johndoe
+#   ./osint maltego                   setup notes for the Maltego desktop app
+#
+# Tools are installed into $OSINT_HOME (default ~/.osint-kit), each in its own
+# Python venv or as a standalone binary, so nothing touches system packages.
+#
+# Use only against targets you own or are explicitly authorised to assess.
+
+set -euo pipefail
+
+OSINT_HOME="${OSINT_HOME:-$HOME/.osint-kit}"
+SRC="$OSINT_HOME/src"
+VENVS="$OSINT_HOME/venvs"
+BIN="$OSINT_HOME/bin"
+PY="${PYTHON:-python3}"
+TOOLS=(theharvester spiderfoot sherlock shodan phoneinfoga reconng)
+
+c_blue=$'\e[34m'; c_green=$'\e[32m'; c_red=$'\e[31m'; c_dim=$'\e[2m'; c_off=$'\e[0m'
+[[ -t 1 ]] || { c_blue=; c_green=; c_red=; c_dim=; c_off=; }
+log()  { printf '%s==>%s %s\n' "$c_blue" "$c_off" "$*"; }
+ok()   { printf '%s ok %s %s\n' "$c_green" "$c_off" "$*"; }
+fail() { printf '%sfail%s %s\n' "$c_red" "$c_off" "$*" >&2; }
+die()  { fail "$*"; exit 1; }
+
+need() { command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not installed."; }
+
+mkvenv() { # mkvenv <name>
+    local v="$VENVS/$1"
+    [[ -x "$v/bin/python" ]] || "$PY" -m venv "$v"
+    "$v/bin/python" -m pip install -q --upgrade pip setuptools wheel
+    echo "$v"
+}
+
+clone() { # clone <url> <dir>
+    need git
+    if [[ -d "$2/.git" ]]; then git -C "$2" pull -q --ff-only || true
+    else git clone -q --depth 1 "$1" "$2"; fi
+}
+
+# ---------------------------------------------------------------- installers
+
+install_theharvester() {
+    log "theHarvester"
+    clone https://github.com/laramies/theHarvester.git "$SRC/theHarvester"
+    local v; v=$(mkvenv theharvester)
+    "$v/bin/pip" install -q "$SRC/theHarvester"
+    ok "theHarvester -> ./osint theharvester -d example.com -b crtsh,dnsdumpster,hackertarget"
+}
+
+install_spiderfoot() {
+    log "SpiderFoot"
+    clone https://github.com/smicallef/spiderfoot.git "$SRC/spiderfoot"
+    local v; v=$(mkvenv spiderfoot)
+    "$v/bin/pip" install -q -r "$SRC/spiderfoot/requirements.txt"
+    ok "SpiderFoot -> ./osint spiderfoot -s example.com -u passive -o csv   (web UI: ./osint spiderfoot -l 127.0.0.1:5001)"
+}
+
+install_sherlock() {
+    log "Sherlock"
+    local v; v=$(mkvenv sherlock)
+    "$v/bin/pip" install -q --upgrade sherlock-project
+    ok "Sherlock -> ./osint sherlock johndoe --print-found"
+}
+
+install_shodan() {
+    log "Shodan CLI"
+    local v; v=$(mkvenv shodan)
+    # shodan still imports pkg_resources, which setuptools>=81 dropped
+    "$v/bin/pip" install -q --upgrade shodan "setuptools<81"
+    ok "Shodan -> ./osint shodan init <API_KEY>, then ./osint shodan host 198.51.100.23"
+}
+
+install_phoneinfoga() {
+    log "PhoneInfoga"
+    need curl; need tar
+    local os arch
+    os=$(uname -s)                          # Linux | Darwin
+    arch=$(uname -m)
+    case "$arch" in aarch64) arch=arm64 ;; armv7l) arch=armv7 ;; esac
+    local url="https://github.com/sundowndev/phoneinfoga/releases/latest/download/phoneinfoga_${os}_${arch}.tar.gz"
+    local tmp; tmp=$(mktemp -d)
+    curl -fsSL "$url" -o "$tmp/p.tgz" || die "download failed: $url"
+    tar -xzf "$tmp/p.tgz" -C "$tmp"
+    install -m 0755 "$tmp/phoneinfoga" "$BIN/phoneinfoga"
+    rm -rf "$tmp"
+    ok "PhoneInfoga -> ./osint phoneinfoga scan -n +12025550143   (web UI: ./osint phoneinfoga serve -p 8080)"
+}
+
+install_reconng() {
+    log "recon-ng"
+    clone https://github.com/lanmaster53/recon-ng.git "$SRC/recon-ng"
+    local v; v=$(mkvenv reconng)
+    "$v/bin/pip" install -q -r "$SRC/recon-ng/REQUIREMENTS"
+    ok "recon-ng -> ./osint reconng   (then: marketplace install recon/domains-hosts/hackertarget)"
+}
+
+cmd_install() {
+    need "$PY"
+    "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || die "Python 3.10+ required (set PYTHON=python3.x)."
+    mkdir -p "$SRC" "$VENVS" "$BIN"
+    local targets=("$@")
+    [[ ${#targets[@]} -eq 0 || "${targets[0]}" == all ]] && targets=("${TOOLS[@]}")
+    local failed=()
+    for t in "${targets[@]}"; do
+        if declare -F "install_$t" >/dev/null; then
+            ( "install_$t" ) || { fail "$t install failed"; failed+=("$t"); }
+        else
+            fail "unknown tool: $t (choose from: ${TOOLS[*]})"; failed+=("$t")
+        fi
+    done
+    echo
+    [[ ${#failed[@]} -eq 0 ]] && ok "all done. Run ./osint doctor" || { fail "failed: ${failed[*]}"; exit 1; }
+}
+
+# ---------------------------------------------------------------- runners
+
+run_tool() {
+    local t="$1"; shift
+    case "$t" in
+        theharvester|theHarvester)
+            [[ -x "$VENVS/theharvester/bin/theHarvester" ]] || die "not installed: ./osint install theharvester"
+            # theHarvester reads api-keys.yaml / proxies.yaml from its own dir
+            cd "$SRC/theHarvester" && exec "$VENVS/theharvester/bin/theHarvester" "$@" ;;
+        spiderfoot)
+            [[ -f "$SRC/spiderfoot/sf.py" ]] || die "not installed: ./osint install spiderfoot"
+            cd "$SRC/spiderfoot" && exec "$VENVS/spiderfoot/bin/python" sf.py "$@" ;;
+        sherlock)
+            [[ -x "$VENVS/sherlock/bin/sherlock" ]] || die "not installed: ./osint install sherlock"
+            exec "$VENVS/sherlock/bin/sherlock" "$@" ;;
+        shodan)
+            [[ -x "$VENVS/shodan/bin/shodan" ]] || die "not installed: ./osint install shodan"
+            PYTHONWARNINGS=ignore::UserWarning exec "$VENVS/shodan/bin/shodan" "$@" ;;
+        phoneinfoga)
+            [[ -x "$BIN/phoneinfoga" ]] || die "not installed: ./osint install phoneinfoga"
+            exec "$BIN/phoneinfoga" "$@" ;;
+        reconng|recon-ng)
+            [[ -f "$SRC/recon-ng/recon-ng" ]] || die "not installed: ./osint install reconng"
+            cd "$SRC/recon-ng" && exec "$VENVS/reconng/bin/python" recon-ng "$@" ;;
+        *) die "unknown tool: $t" ;;
+    esac
+}
+
+cmd_doctor() {
+    printf '%-14s %s\n' TOOL STATUS
+    chk() { if eval "$2" >/dev/null 2>&1; then printf '%-14s %sinstalled%s\n' "$1" "$c_green" "$c_off"; else printf '%-14s %smissing%s   ./osint install %s\n' "$1" "$c_red" "$c_off" "$1"; fi; }
+    chk theharvester "[[ -x '$VENVS/theharvester/bin/theHarvester' ]]"
+    chk spiderfoot   "[[ -f '$SRC/spiderfoot/sf.py' && -x '$VENVS/spiderfoot/bin/python' ]]"
+    chk sherlock     "[[ -x '$VENVS/sherlock/bin/sherlock' ]]"
+    chk shodan       "[[ -x '$VENVS/shodan/bin/shodan' ]]"
+    chk phoneinfoga  "[[ -x '$BIN/phoneinfoga' ]]"
+    chk reconng      "[[ -f '$SRC/recon-ng/recon-ng' && -x '$VENVS/reconng/bin/python' ]]"
+    printf '%-14s %s\n' maltego "desktop app - ./osint maltego"
+    if [[ -x "$VENVS/shodan/bin/shodan" ]]; then
+        "$VENVS/shodan/bin/shodan" info >/dev/null 2>&1 && ok "shodan API key configured" || printf '%s     shodan has no API key yet: ./osint shodan init <KEY>%s\n' "$c_dim" "$c_off"
+    fi
+    echo "${c_dim}home: $OSINT_HOME${c_off}"
+}
+
+cmd_maltego() {
+    cat <<'EOF'
+Maltego is a commercial desktop app (free "Community" tier), so it can't be installed headlessly.
+
+  1. Download:  https://www.maltego.com/downloads/   (Kali: sudo apt install maltego)
+  2. Create a free account and pick the Community / CE plan at first launch.
+  3. New graph -> drag a "Domain" entity -> right-click -> run Transforms:
+       DNS from Domain     -> resolve live hosts
+       To Email (Whois)    -> registrant emails
+       To Netblock         -> owned IP ranges
+  4. Import data from this kit: File -> Import -> Table, then load the CSV that
+     theHarvester (-f out) or SpiderFoot (-o csv) wrote.
+
+Browser alternative: the /tools/domain page has a graph view of the same domain -> host -> IP links.
+EOF
+}
+
+usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; }
+
+main() {
+    local cmd="${1:-help}"; shift || true
+    case "$cmd" in
+        install) cmd_install "$@" ;;
+        doctor|status) cmd_doctor ;;
+        maltego) cmd_maltego ;;
+        help|-h|--help) usage ;;
+        *) run_tool "$cmd" "$@" ;;
+    esac
+}
+main "$@"

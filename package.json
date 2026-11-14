@@ -14,6 +14,7 @@
         "dayjs": "^1.11.11",
         "front-matter": "^4.0.2",
         "glob": "^10.4.2",
+        "libphonenumber-js": "^1.13.16",
         "markdown-to-jsx": "^7.7.3",
         "marked": "^14.1.2",
         "next": "15.5.12",
